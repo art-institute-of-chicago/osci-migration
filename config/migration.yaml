@@ -119,7 +119,6 @@ pipeline:
                   - mapping: root._body_text = content().string()
                   - branch:
                       request_map: |
-                        meta id = this._id
                         meta body_text = this._body_text
 
                         root = this._body_text
@@ -130,7 +129,7 @@ pipeline:
                         - catch:
                             - log:
                                 level: WARN
-                                message: 'Parsing HTML for ${! metadata("id") } in ${! metadata("pkg_name") } failed! Check _body_parse_error for this document'
+                                message: 'Parsing HTML for ${! metadata("url") } in ${! metadata("pkg_name") } failed! Check _body_parse_error for this document'
                             - mapping: |
                                 root._parse_error = error()
                       result_map: |
