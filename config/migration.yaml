@@ -23,7 +23,8 @@ logger:
 input:
   generate:
     mapping: |
-      root = { "whistler_linkedvisions": "https://publications.artic.edu/whistler/api/epub/linkedvisions/package.opf",
+      root = { 
+               "whistler_linkedvisions": "https://publications.artic.edu/whistler/api/epub/linkedvisions/package.opf",
                "monet": "https://publications.artic.edu/monet/api/epub/paintingsanddrawings/package.opf",
                "gauguin": "https://publications.artic.edu/gauguin/api/epub/gauguinart/package.opf",
                "modernseries2": "https://publications.artic.edu/modernseries2/api/epub/go/package.opf",
@@ -82,7 +83,7 @@ pipeline:
       # - Attempts to parse as HTML, copies _body_text to _body_html if so, stores error on _meta._body_parse_error if not
       branch:
         request_map: |
-          meta format = this._type
+          meta format = this._format
           meta url = this._url 
           root = if this._url != null { this._url } else { deleted() }
         processors:  
@@ -141,15 +142,15 @@ pipeline:
     - workflow:
         meta_path: _meta.workflow
         branches:
-          head_title:
+          parse_osci_html:
             request_map: |
               meta id = this._id
               root = if this._body_html != null { this._body_html } else { deleted() }
             processors:
-              # TODO: Move `command` to `subprocess` and rewrite the javascript to split by newline
+              # TODO: Move `command` to `subprocess` and rewrite the javascript to start/stop by newline?
               - command:
                   name: 'node'
-                  args_mapping: '[ "./alignments/head-title.js" ]'
+                  args_mapping: '[ "./alignments/parse-osci.js" ]'
               - switch:
                   - check: 'metadata("command_stderr") != null'
                     processors:
@@ -157,7 +158,7 @@ pipeline:
                           message: '${! metadata("command_stderr") }'
                           level: WARN
             result_map: |
-              root._head_title = json("head_title") | deleted()
+              root.assign(json())
 
           # TODO: toc_align -- use jsdom to turn TOC-page manifest `item`s into a useful JSON structure (some of these things are _only_ here so it is really more informative than spine?) so we can do a nice internally-linked ul/li/etc-based view of the TOC
           # TODO: type_materialize -- materialize these into types of _some_ kind so we know what is what later and don't have to markup-sense
@@ -186,7 +187,7 @@ output:
       - check: this._type == "${LOG_TYPE:}"
         output:
           stdout: {}
-      - check: this._type.has_prefix("image/")
+      - check: this._format.has_prefix("image/")
         output:
           drop: {}
       - output:
@@ -199,16 +200,14 @@ output:
                   - id
                   - package
                   - type
+                  - format
                   - data
                 # NB: if anything needs to serialize raw HTML use `replace_all_many` see: https://github.com/benthosdev/benthos/issues/1253
-                args_mapping: root = [ this._id, metadata("pkg_name"), this._type, this.string() ]
+                args_mapping: root = [ this._id, metadata("pkg_name"), this._type, this._format, this.string() ]
                 max_in_flight: 1 # WAL should be N=2 but writes take time I guess?
                 init_files:
                   - config/prepare_connex.sqlite3
                   - config/output_schema.sqlite3
-                init_statement: |
-                  PRAGMA journal_mode=WAL;
-                  CREATE TABLE IF NOT EXISTS documents (id TEXT, package TEXT, type TEXT, data JSON);
             - stdout: {} # FIXME: log the error instead
 
 processor_resources:

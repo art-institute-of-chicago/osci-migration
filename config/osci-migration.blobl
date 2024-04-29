@@ -18,7 +18,8 @@ map osci_package_align {
     root._id_urn = this.metadata.identifier."#text"
     root._title = this.metadata.title."#text"
 
-    root._type = "application/oebps-package+xml"
+    root._type = "osci-package"
+    root._format = "application/oebps-package+xml"
     root._spine = this.spine
 
 }
@@ -37,7 +38,7 @@ map osci_manifest_item_align {
 
     root._raw = this
     root._id = this."-id" | error()
-    root._type = this."-media-type" | deleted()
+    root._format = this."-media-type" | deleted()
     root._url = this."-href"
     root._meta._properties = this."-properties" | deleted()
 

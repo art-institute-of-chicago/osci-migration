@@ -1,11 +1,21 @@
 const { JSDOM } = require('jsdom');
 
+const materializeType = (dom) => {
+  switch ( dom.window.document.title.trim().toLowerCase() ) {
+  case 'figure':
+    return 'figure'
+  case 'navigation':
+    return 'toc'
+  }
+
+  return 'text'
+}
+
 (() => {
 
   process.stdin.once("readable", () => {
 
     // Basically just the node docs reader (https://nodejs.org/api/stream.html#event-readable) so we're OK re: buffering large STDINs
-    // TODO: Return a promise or something so this can just be imported by other alignment scripts
     let data;
     let buf;
 
@@ -13,17 +23,15 @@ const { JSDOM } = require('jsdom');
     while ((data = process.stdin.read()) !== null) {
       buf += data.toString()
     }
-
     const dom = new JSDOM(buf)
+    const type = materializeType(dom)
+    const result = { "_type": type }
 
     if (dom.window.document.title) {
-      const result = { 'head_title': dom.window.document.title.trim() }
-      process.stdout.write(JSON.stringify(result))
-      return 
+      result.head_title = dom.window.document.title.trim()
     }
 
-    process.stdout.write(JSON.stringify({}))
-    return
+    process.stdout.write(JSON.stringify(result))
 
   })
 
