@@ -73,7 +73,7 @@ input:
 pipeline:
   processors:
     - split: 
-        size: 20
+        size: 200
     - label: fetch_parts
       # TODO: Break one or two of these into `processor_resources`
       # - Fetches URLs if they're not in cache
@@ -141,7 +141,7 @@ pipeline:
     - workflow:
         meta_path: _meta.workflow
         branches:
-          unpack_html:
+          head_title:
             request_map: |
               meta id = this._id
               root = if this._body_html != null { this._body_html } else { deleted() }
@@ -150,8 +150,14 @@ pipeline:
               - command:
                   name: 'node'
                   args_mapping: '[ "./alignments/head-title.js" ]'
+              - switch:
+                  - check: 'metadata("command_stderr") != null'
+                    processors:
+                      - log:
+                          message: '${! metadata("command_stderr") }'
+                          level: WARN
             result_map: |
-              root._head_title = json()
+              root._head_title = json("head_title") | deleted()
 
           # TODO: toc_align -- use jsdom to turn TOC-page manifest `item`s into a useful JSON structure (some of these things are _only_ here so it is really more informative than spine?) so we can do a nice internally-linked ul/li/etc-based view of the TOC
           # TODO: type_materialize -- materialize these into types of _some_ kind so we know what is what later and don't have to markup-sense
