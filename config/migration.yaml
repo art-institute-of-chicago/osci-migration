@@ -1,0 +1,250 @@
+# OSCI Publications Migration Pipeline
+#
+# Unpacks OSCI publications into an intermediate database suitable for migration.
+# 
+# - Take a list of epub URLs
+# - Grab each epub manifest URL
+#   - Convert XML to JSON
+#   - Unpack each manifest item into its own record
+#   - Fetch each item URL 
+#   - Attempt to parse them (if they're HTML-alike)
+#   - Capture a wee copy of them (if they're not -- ie, type=image/* )
+# - Persist them (in a db, to a REST API, etc)  
+
+http:
+  enabled: false
+
+logger:
+  level: "${LOG_LEVEL:INFO}"
+  format: logfmt
+
+# FIXME: Source a YAML document here with our targets and enable / disable there (check enable/disable here too ;) )
+# Keep reading inputs until we've fetched every configured URL
+input:
+  generate:
+    mapping: |
+      root = { "whistler_linkedvisions": "https://publications.artic.edu/whistler/api/epub/linkedvisions/package.opf",
+               "monet": "https://publications.artic.edu/monet/api/epub/paintingsanddrawings/package.opf",
+               "gauguin": "https://publications.artic.edu/gauguin/api/epub/gauguinart/package.opf",
+               "modernseries2": "https://publications.artic.edu/modernseries2/api/epub/go/package.opf",
+               "pissarro": "https://publications.artic.edu/pissarro/api/epub/paintingsandpaper/package.opf",
+               "renoir": "https://publications.artic.edu/renoir/api/epub/paintingsanddrawings/package.opf", 
+               "romanart": "https://publications.artic.edu/roman/api/epub/romanart/package.opf", 
+               "whistlerart": "https://publications.artic.edu/whistlerart/api/epub/paintingsanddrawings/package.opf", 
+               "caillebotte": "https://publications.artic.edu/caillebotte/api/epub/paintingsanddrawings/package.opf"
+              } 
+    count: 1
+  processors:
+    - unarchive:
+        format: json_map
+    - mapping: |
+        meta pkg_name = metadata("archive_key")
+        meta package = json()
+    - http:
+        url: '${! metadata("package") }'
+        verb: GET
+        headers:
+          # TODO: Use the OPF mime type? */*?
+          Accept: text/html; charset=utf-8
+          Content-Type: text/html; charset=utf-8
+    - mapping: |
+        root = content().string()
+    - xml:
+        operator: to_json
+    - mapping: |
+        import "./config/osci-migration.blobl"
+
+        let package = this.package.assign( {"_href": metadata("package") } )
+        let manifest_items = this.package.manifest.item.map_each( it -> it.apply("osci_manifest_item_align") )
+        root = [ $package.apply("osci_package_align") ].concat( $manifest_items.map_each( m -> m.assign({"_id": "%s/%s".format(metadata("package"),m._id) } )  ) )
+    - unarchive:
+        format: json_array
+
+  # processors:
+  #   # Cache everything so we can cross-join by id in the processing stage
+  #   - resource: node_cache_set
+
+# buffer:
+#   memory:
+#     batch_policy:
+#       enabled: true
+#       count: 50000 # NB: Uncomment this buffer if inputs are not already batched and you need to force-batch them -- will impact performance and all messages must fit in memory!
+
+pipeline:
+  processors:
+    - split: 
+        size: 20
+    - label: fetch_parts
+      # TODO: Break one or two of these into `processor_resources`
+      # - Fetches URLs if they're not in cache
+      # - Caches result
+      # - Stores as _body_base64 (if image), _body_text (if not image)
+      # - Attempts to parse as HTML, copies _body_text to _body_html if so, stores error on _meta._body_parse_error if not
+      branch:
+        request_map: |
+          meta format = this._type
+          meta url = this._url 
+          root = if this._url != null { this._url } else { deleted() }
+        processors:  
+          # TODO: Handle type == image/* differently maybe
+          - resource: url_cache_get
+          - catch:
+            - mapping: meta do_fetch = true
+          - switch:
+              - check: metadata("do_fetch") == true
+                processors:
+                  - log:
+                      level: DEBUG
+                      message: 'Fetching ${! metadata("url") }'
+                  - http:
+                      url: '${! metadata("url")  }'
+                      verb: GET
+                      rate_limit: easy
+                      # dump_request_log_level: INFO # TODO: enable this base on an env flag (warning: very verbose!)
+                      headers:
+                        User-Agent: 'Mozilla/5.0 (Darwin)'
+                        Accept: "*/*" # TODO: Consider using media-type? Might be too strict in migration and.. is there conneg anyway?
+                  - catch:
+                      - log: 
+                          level: WARN
+                          message: 'Could not process ${! metadata("url").string() }: ${! error() }'
+                      - mapping: 'root = { "_id": metadata("url"), "_meta": {"fetch_failed": true } }'
+          - resource: url_cache_set
+          - switch: 
+              - check: |
+                  metadata("format").has_prefix("image/")
+                processors:
+                  - mapping: root._body_base64 = content()
+              - processors:
+                  - mapping: root._body_text = content().string()
+                  - branch:
+                      request_map: |
+                        meta id = this._id
+                        meta body_text = this._body_text
+
+                        root = this._body_text
+                      processors:
+                        - xml:
+                            operator: to_json
+                        # NB!! We're using xml->json only to catch the HTML parse error! 😿
+                        - catch:
+                            - log:
+                                level: WARN
+                                message: 'Parsing HTML for ${! metadata("id") } in ${! metadata("pkg_name") } failed! Check _body_parse_error for this document'
+                            - mapping: |
+                                root._parse_error = error()
+                      result_map: |
+                        root._meta._body_parse_error = this._parse_error | deleted()
+                        root._body_html = if !this.exists("_parse_error") { metadata("body_text") } else { deleted() }
+        result_map: |
+          root.assign(this)
+
+    - workflow:
+        meta_path: _meta.workflow
+        branches:
+          unpack_html:
+            request_map: |
+              meta id = this._id
+              root = if this._body_html != null { this._body_html } else { deleted() }
+            processors:
+              # TODO: Move `command` to `subprocess` and rewrite the javascript to split by newline
+              - command:
+                  name: 'node'
+                  args_mapping: '[ "./alignments/head-title.js" ]'
+            result_map: |
+              root._head_title = json()
+
+          # TODO: toc_align -- use jsdom to turn TOC-page manifest `item`s into a useful JSON structure (some of these things are _only_ here so it is really more informative than spine?) so we can do a nice internally-linked ul/li/etc-based view of the TOC
+          # TODO: type_materialize -- materialize these into types of _some_ kind so we know what is what later and don't have to markup-sense
+          # TODO: spine_materialize -- join across from package `spine` structures to their articles so we can do a nice row view of the spine
+          # TODO: glossary_align -- use jsdom to turn dl/dt/dd tags into json term / description things useful as a detail/summary tags in review
+
+          # TODO: text_figures_align -- use jsdom to turn call sites at a.figure_reference and targets at figure, with extra data on @dataset-* into a useful panel view of what the figures do
+          # TODO: footnotes_align -- use jsdom to turn call sites at a.footnote-reference and targets at aside.footnote into a panel tooltip view of the footnotes
+          # TODO: blocks_align -- use jsdom to turn non-figure (???) articles
+
+          # TODO: html_clean -- use jsdom or maybe pandoc to trip weird markup (eg, <span></span> dropcaps, etc etc)
+          # TODO: contribution_render -- topology of processors, pulling out data from essays etc and turning it into blocks, figure, footnotes, and so on
+          # TODO: entry_render -- topology of processors doing similar but probably slightly different work from `contribution` 
+          # TODO: image_snapshot -- shell out to `convert` and grab a wee thing we can carry in the lighter DB (lol impelment matrix algebra and convolve a resize!)
+
+    - processors:
+        - noop: {}
+output:
+  switch:
+    cases:
+      - check: errored()
+        output:
+          reject: "Record failed: ${! error() } . Message was ${! content().string() } "
+      # FIXME: This logic is off for "logging" types -- the logged msg isn't sent to the persistent output!
+      # TODO: For _blob assets consider a hash so we know something on the other side or in-memory thumbnail of some kind (a quickie convolution kernel on base64 data?)
+      - check: this._type == "${LOG_TYPE:}"
+        output:
+          stdout: {}
+      - check: this._type.has_prefix("image/")
+        output:
+          drop: {}
+      - output:
+          fallback:
+            - sql_insert:
+                driver: "sqlite"
+                dsn: 'file:output/migration.sqlite3?mode=rwc'
+                table: documents
+                columns:
+                  - id
+                  - package
+                  - type
+                  - data
+                # NB: if anything needs to serialize raw HTML use `replace_all_many` see: https://github.com/benthosdev/benthos/issues/1253
+                args_mapping: root = [ this._id, metadata("pkg_name"), this._type, this.string() ]
+                max_in_flight: 1 # WAL should be N=2 but writes take time I guess?
+                init_files:
+                  - config/prepare_connex.sqlite3
+                  - config/output_schema.sqlite3
+                init_statement: |
+                  PRAGMA journal_mode=WAL;
+                  CREATE TABLE IF NOT EXISTS documents (id TEXT, package TEXT, type TEXT, data JSON);
+            - stdout: {} # FIXME: log the error instead
+
+processor_resources:
+  - label: url_cache_get
+    cache:
+      resource: url_cache
+      operator: get
+      key: '${! metadata("url") }'
+
+  - label: url_cache_set
+    cache:
+      resource: url_cache
+      operator: set
+      key: '${! metadata("url") }'
+      value: "${! content() }"
+
+cache_resources:
+  # Here only for smoke testing!
+  # - label: node_cache
+  #   file:
+  #     directory: cacheyboo
+  - label: node_cache # Nodes we create / join during processing
+    memory:
+      default_ttl: 5m
+      init_values: {}
+  - label: url_cache # URLs we request so we don't hammer endpoint
+    sql:
+      driver: "sqlite"
+      dsn: "file:data/osci_url_cache.sqlite3?mode=rwc"
+      table: documents
+      key_column: id
+      value_column: data
+      conn_max_open: 2 # Reduce to 1 if there's contention (eg, "SQL_LOCKED" errs)
+      init_statement: |
+        PRAGMA journal_mode=WAL;
+        CREATE TABLE IF NOT EXISTS documents (id TEXT, data JSON);
+
+rate_limit_resources:
+  - label: easy
+    local:
+      count: 75 # NB: Above ~75 rps we get weird HTTP 400 errs from OSCI jpeg assets (75 still too high! -- cb@4/17/2024)
+      interval: 1s
+
+tests: []

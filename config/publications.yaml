@@ -1,0 +1,15 @@
+publications:
+  - id: whistler_linkedvisions
+    url: https://publications.artic.edu/whistler/api/epub/linkedvisions/package.opf
+
+      root = { "": "" }
+              #  "monet": "https://publications.artic.edu/monet/api/epub/paintingsanddrawings/package.opf",
+              #  "gauguin": "https://publications.artic.edu/gauguin/api/epub/gauguinart/package.opf",
+              #  "modernseries2": "https://publications.artic.edu/modernseries2/api/epub/go/package.opf",
+              #  "pissarro": "https://publications.artic.edu/pissarro/api/epub/paintingsandpaper/package.opf",
+              #  "renoir": "https://publications.artic.edu/renoir/api/epub/paintingsanddrawings/package.opf", 
+              #  "romanart": "https://publications.artic.edu/roman/api/epub/romanart/package.opf", 
+               
+              #  "whistlerart": "https://publications.artic.edu/whistlerart/api/epub/paintingsanddrawings/package.opf", 
+              #  "caillebotte": "https://publications.artic.edu/caillebotte/api/epub/paintingsanddrawings/package.opf"
+              # } 

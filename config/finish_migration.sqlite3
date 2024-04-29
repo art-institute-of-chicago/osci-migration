@@ -1,0 +1,2 @@
+-- TODO: EITHER... We're just cleaning up FK constraints and such here. Definitely disabling WAL so it can be opened r/o from one file (🫠) 
+-- Or we're doing SQL-ish alignments (so: cardinality-preserving flow downs to tables, mostly dumping JSON and fixing type targets or annotating them so they can be later (eg, datetimes in sqlite are text, UUIDs don't exist, any special crypto params sqlite doesn't provide that psql will, etc etc etc)

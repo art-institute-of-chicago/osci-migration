@@ -1,0 +1,44 @@
+# osci-migration.blobl
+# bloblang mappings for handling transformation from OSCI Toolkit build artifacts:
+# - epub manfiest XML
+# - JPEGs
+# - HTML docs for running text
+# - HTML docs for marked up features (zoomable images, multi-figure lockups, etc)
+#
+# FIXME: Any need to check the OPF schema?
+# FIXME: If we need HTML escape / unescapes in raw XML string text grab them here:
+# import "./xml-ops.blobl"
+
+# Aligns osci epub package data to an intermediate representation for processing
+map osci_package_align {
+    root = this
+
+    # FIXME: is this.metadata.identifier."-id" required?
+    root._id = metadata("pkg_name") 
+    root._id_urn = this.metadata.identifier."#text"
+    root._title = this.metadata.title."#text"
+
+    root._type = "application/oebps-package+xml"
+    root._spine = this.spine
+
+}
+
+# Aligns osci epub manfiest item data to an intermediate representation for processing
+# Each item message looks like this on input: 
+#
+# {
+#   "-href": "https://publications.artic.edu/whistlerart/api/epub/paintingsanddrawings/nav.xhtml?revision=1607615557",
+#   "-id": "nav", // Used in later steps to reference by ID in, eg, TOC spine or figures
+#   "-media-type": "application/xhtml+xml",
+#   "-properties": "nav" // OPTIONAL
+# }
+#
+map osci_manifest_item_align {
+
+    root._raw = this
+    root._id = this."-id" | error()
+    root._type = this."-media-type" | deleted()
+    root._url = this."-href"
+    root._meta._properties = this."-properties" | deleted()
+
+}
