@@ -1,5 +1,11 @@
 -- Just an but triggers are irritating in sqlite so this should really be cool tables
-CREATE TABLE IF NOT EXISTS documents (id TEXT, package TEXT, type TEXT, format TEXT, data JSON);
+CREATE TABLE IF NOT EXISTS documents (  id TEXT, 
+										package TEXT, 
+										type TEXT, 
+										format TEXT, 
+										title TEXT,
+										error TEXT, 
+										data JSON );
 
 -- FIXME: Erm, these are wrong -- should be things like `blocks` that align to their CMS schemas and then some upper level container(s) like Entry vs Article?
 -- FIXME: Insert primitive db types if nec. (`*_psql_type`?)

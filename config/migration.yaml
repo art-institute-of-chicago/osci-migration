@@ -201,13 +201,15 @@ output:
                   - package
                   - type
                   - format
+                  - title
+                  - error
                   - data
                 # NB: if anything needs to serialize raw HTML use `replace_all_many` see: https://github.com/benthosdev/benthos/issues/1253
-                args_mapping: root = [ this._id, metadata("pkg_name"), this._type, this._format, this.string() ]
+                args_mapping: root = [ this._id, metadata("pkg_name"), this._type, this._format, this.head_title, this._meta._body_parse_error, this.string() ]
                 max_in_flight: 1 # WAL should be N=2 but writes take time I guess?
                 init_files:
                   - config/prepare_connex.sqlite3
-                  - config/output_schema.sqlite3
+                  - config/migration_schema.sqlite3
             - stdout: {} # FIXME: log the error instead
 
 processor_resources:

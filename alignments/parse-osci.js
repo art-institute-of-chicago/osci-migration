@@ -1,14 +1,76 @@
 const { JSDOM } = require('jsdom');
 
+// TODO: Wrap everything in try/catch so we can leave a dirty exit code on fail
 const materializeType = (dom) => {
   switch ( dom.window.document.title.trim().toLowerCase() ) {
   case 'figure':
     return 'figure'
   case 'navigation':
+    // FIXME: Maybe should check nav @epub:type='toc' instead?
     return 'toc'
   }
 
   return 'text'
+}
+
+const parseFootnotes = (doc) => {
+
+  let footnotes = []
+  const section = doc.querySelector('section#footnotes')
+
+  if (section) {
+    const notes = section.querySelectorAll('aside.footnote')
+    notes.forEach( (note) => {
+
+      const id = note.id
+      const index = note.dataset.footnote_index
+      const noteHtml = note.innerHTML
+
+      const par = note.querySelector('p')
+      const noteText = par.textContent
+
+      const parsed = { id, index, noteHtml, noteText }
+      footnotes.push(parsed)
+
+    })
+  }
+
+  return footnotes
+}
+
+// For now just parse texts into Sections?
+const parseTextSections = (doc) => {
+
+}
+
+const parseTocSections = (doc) => {
+  // TODO: Consider destructuring sections array and passing a tree of section ids
+  let sections = []
+
+  const headingsList = doc.querySelector('ol')
+
+  if (headingsList) {
+    const headings = headingsList.querySelectorAll('li')
+    headings.forEach( (hdg,idx) => {
+      const anchor = hdg.querySelector('a')
+
+      if (!anchor) { return }
+
+      const title = anchor.textContent // FIXME: This is still CDATA-wrapped?
+      const url = anchor.href
+      const id = anchor.dataset.section_id
+      const thumbnail = anchor.dataset.thumbnail 
+      const subHeadings = JSON.parse(anchor.getAttribute('data-subHead')) // NB: getAttribute() because subHead doesn't pass dataset's camelCase/snake-case xform 
+      // FIXME: JSON parse this ;) 
+
+      const parsed = { id, url, title, thumbnail, subHeadings, subSections: parseTocSections(hdg) }
+      sections.push(parsed)
+
+    })
+
+  }
+
+  return sections
 }
 
 (() => {
@@ -29,6 +91,19 @@ const materializeType = (dom) => {
 
     if (dom.window.document.title) {
       result.head_title = dom.window.document.title.trim()
+    }
+
+    switch (type) {
+    case 'toc':
+      const sections = parseTocSections(dom.window.document) 
+      result.sections = sections
+      break
+    case 'figure':
+      break
+    case 'text':
+      const notes = parseFootnotes(dom.window.document)
+      result.footnotes = notes
+      break
     }
 
     process.stdout.write(JSON.stringify(result))
