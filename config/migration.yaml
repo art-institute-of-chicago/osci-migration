@@ -18,29 +18,23 @@ logger:
   level: "${LOG_LEVEL:INFO}"
   format: logfmt
 
-# FIXME: Source a YAML document here with our targets and enable / disable there (check enable/disable here too ;) )
-# Keep reading inputs until we've fetched every configured URL
+# - Read the input YAML for the pubs list 
+# - For each publication, unpack the package contents and annotate with `_url` for later fetching
 input:
-  generate:
-    mapping: |
-      root = { 
-               "whistler_linkedvisions": "https://publications.artic.edu/whistler/api/epub/linkedvisions/package.opf",
-               "monet": "https://publications.artic.edu/monet/api/epub/paintingsanddrawings/package.opf",
-               "gauguin": "https://publications.artic.edu/gauguin/api/epub/gauguinart/package.opf",
-               "modernseries2": "https://publications.artic.edu/modernseries2/api/epub/go/package.opf",
-               "pissarro": "https://publications.artic.edu/pissarro/api/epub/paintingsandpaper/package.opf",
-               "renoir": "https://publications.artic.edu/renoir/api/epub/paintingsanddrawings/package.opf", 
-               "romanart": "https://publications.artic.edu/roman/api/epub/romanart/package.opf", 
-               "whistlerart": "https://publications.artic.edu/whistlerart/api/epub/paintingsanddrawings/package.opf", 
-               "caillebotte": "https://publications.artic.edu/caillebotte/api/epub/paintingsanddrawings/package.opf"
-              } 
-    count: 1
+  file:
+    paths: 
+      - config/publications.yaml
+    scanner:
+      to_the_end: {}
   processors:
+    - mapping: |
+        root = content().parse_yaml().publications.map_each( p -> { p.id : p } ).squash()
     - unarchive:
         format: json_map
     - mapping: |
         meta pkg_name = metadata("archive_key")
-        meta package = json()
+        meta package = json("package_url")
+        meta reader_url = json("reader_url")
     - http:
         url: '${! metadata("package") }'
         verb: GET
@@ -71,12 +65,14 @@ input:
 #       enabled: true
 #       count: 50000 # NB: Uncomment this buffer if inputs are not already batched and you need to force-batch them -- will impact performance and all messages must fit in memory!
 
+# Now we've got everything unpacked, split the batch into a useful size, fetch URLs and parse the results
 pipeline:
   processors:
     - split: 
         size: 200
     - label: fetch_parts
-      # TODO: Break one or two of these into `processor_resources`
+      # TODO: Break up this complex branch with into `resources`
+
       # - Fetches URLs if they're not in cache
       # - Caches result
       # - Stores as _body_base64 (if image), _body_text (if not image)
@@ -159,7 +155,6 @@ pipeline:
                           level: WARN
             result_map: |
               root.assign(json())
-
 
           # TODO: text_figures_align -- use jsdom to turn call sites at a.figure_reference and targets at figure, with extra data on @dataset-* into a useful panel view of what the figures do
           # TODO: blocks_align -- use jsdom to turn non-figure (???) articles
