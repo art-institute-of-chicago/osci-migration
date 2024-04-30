@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
+import './App.css'
 
 import dbFile from './data/migration.sqlite3?url'
 
@@ -68,7 +69,7 @@ function SelectedEntityView(props: any) {
             </details>
   }
 
-  return <div className="box selected-record w-100">
+  return <div className="box selected-record">
           <h2 className='title'>Table of Contents for {data.package}</h2>
           <h3 className='subtitle'><div><a href={data.url} target="_blank">View raw HTML</a></div></h3>
           <div className='content'>
@@ -125,7 +126,7 @@ function OtherFeaturesView(props: any) {
       }
   }
 
-  return (<div className="records records-other-features">
+  return (<div className="records records-other-features w-100">
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
           <table className="table is-bordered is-striped is-hoverable">
             <thead>
@@ -333,21 +334,21 @@ function TextsView(props: any) {
 
   return <div className="records records-texts">
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
-          <table className="table is-bordered is-striped is-hoverable">
+          <table className="table is-bordered is-striped is-hoverable is-fullwidth is-narrow">
             <thead>
               <tr>
-                <th>id</th>
-                <th>package</th>
-                <th>raw_link</th>
-                <th>title</th>
-                <th>error</th>
+                <th scope='col'>id</th>
+                <th scope='col'>package</th>
+                <th scope='col'>raw_link</th>
+                <th scope='col'>title</th>
+                <th scope='col'>error</th>
               </tr>
             </thead>
             <tfoot>
                 <th>id</th>
                 <th>package</th>
                 <th>raw_link</th>
-                <th>head_title</th>
+                <th>title</th>
                 <th>error</th>
             </tfoot>
             <tbody>
@@ -358,7 +359,7 @@ function TextsView(props: any) {
                           <td>{r.package}</td>
                           <td><a href={r.url} target="_blank">View as Raw HTML</a></td>
                           <td>{r.title}</td>
-                          <td>{r.error}</td>
+                          <td >{r.error}&nbsp;</td>
                         </tr>
 
                     })
@@ -543,7 +544,7 @@ function App() {
   return (
       <div className="container">
 
-        <h1 className="title is-2 mb-3">Digital Publications Review</h1>
+        <h1 className="title is-2 mb-3">OSCI Publications</h1>
 
         <div className="tabs">
           <ul>
