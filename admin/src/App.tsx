@@ -39,6 +39,10 @@ function SelectedEntityView(props: any) {
 
   const tocSection = (sect: any) => {
     const { title, url, thumbnail, subHeadings, subSections } = sect
+
+    const subheads = subHeadings ?? []
+    const subsects = subSections ?? []
+
     return <details className='ml-3'>
               <summary className='is-text-weight-bold'>{title}</summary>
               <dl className='ml-5'>
@@ -46,19 +50,19 @@ function SelectedEntityView(props: any) {
                 <dd className={ thumbnail ? '' : 'is-hidden' }><img src={thumbnail} width='160'/></dd>
                 <dt>Raw URL</dt>
                 <dd><a href={url} target='_blank'>{url}</a></dd>
-                <dt className={ subHeadings.length > 0 ? '' : 'is-hidden'  }>Sub-Headings</dt>
-                <dd className={ subHeadings.length > 0 ? '' : 'is-hidden'  }>
+                <dt className={ subheads.length > 0 ? '' : 'is-hidden'  }>Sub-Headings</dt>
+                <dd className={ subheads.length > 0 ? '' : 'is-hidden'  }>
                   <ul>
                     { 
-                      subHeadings.map( (sh: any) => {
+                      subheads.map( (sh: any) => {
                         return <li>{sh.id}: {sh.label}</li>
                       }) 
                     }
                   </ul>
                 </dd>
-                <div className={ subSections.length > 0 ? '' : 'is-hidden' }>
+                <div className={ subsects.length > 0 ? '' : 'is-hidden' }>
                   <span className='is-text-weight-semibold'>Sub-Sections</span>
-                  {subSections.map( (s: any) => tocSection(s) )}                
+                  {subsects.map( (s: any) => tocSection(s) )}                
                 </div>
               </dl>
             </details>
@@ -380,7 +384,7 @@ function PublicationsView(props: any) {
     if ( props.dbId === null ) { return }
     props.sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
 
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select id, data->>'$._href' as url, data->>'$._title' as name, data->>'$._id_urn' as id_urn, json_array_length(data,'$._spine.itemref') as spine_length, data->>'$._toc_url' as toc_url from documents where type='osci-package'` }})
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select id, data->>'$._href' as url, data->>'$._title' as name, data->>'$._id_urn' as id_urn, json_array_length(data,'$._spine.itemref') as spine_length, data->>'$._toc_url' as toc_url, data->>'$._reader_url' as osci_url from documents where type='osci-package'` }})
 
   },[props.sqlWorker,props.dbId])
 
@@ -410,6 +414,7 @@ function PublicationsView(props: any) {
                 <th>title</th>
                 <th>id_urn</th>
                 <th>spine_length</th>
+                <th>view_osci</th>
                 <th>raw_link</th>
                 <th>view</th>
               </tr>
@@ -419,6 +424,7 @@ function PublicationsView(props: any) {
                 <th>title</th>
                 <th>id_urn</th>
                 <th>spine_length</th>
+                <th>view_osci</th>
                 <th>raw_link</th>
                 <th>view</th>
             </tfoot>
@@ -430,6 +436,7 @@ function PublicationsView(props: any) {
                           <td>{r.name}</td>
                           <td>{r.id_urn}</td>
                           <td>{r.spine_length}</td>
+                          <td><a href={r.osci_url} target="_blank">View OSCI</a></td>
                           <td><a href={r.url} target="_blank">View as Raw HTML</a></td>
                           <td><a href="#" target="_blank" onClick={ (e) => handleView(r.toc_url,e) } >View</a></td>
                         </tr>
