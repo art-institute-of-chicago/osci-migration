@@ -2,6 +2,80 @@ import { useEffect, useState, useMemo } from 'react'
 
 import dbFile from './data/migration.sqlite3?url'
 
+function SelectedEntityView(props: any) {
+
+  const [ready,setReady] = useState(false)
+  const [data,setData] = useState({} as any)
+
+  useEffect(() => {
+
+    if ( props.dbId === null ) { return }
+    props.sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
+    setReady(true)
+
+  },[props.sqlWorker,props.dbId])
+
+  useEffect(() => {
+    if (!ready) { return }
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, data->>'$.sections' as sections from documents where data->>'$._url'=?`, bind: [ props.selected ] }})     
+  },[ready,props.selected])
+
+  const msgResponder = (event: any) => {
+    const msg = event.data
+    switch (msg.type) {
+      case 'selected-entity':
+        if ( isResultTerminator(msg) ) { 
+          return
+        }
+        const { id, package: packageId, sections, url } = msg.row
+        const sect = JSON.parse(sections)
+
+        setData({id, package: packageId, sections: sect, url })
+        break
+      default:
+        return
+      }
+  }
+
+  const tocSection = (sect: any) => {
+    const { title, url, thumbnail, subHeadings, subSections } = sect
+    return <details className='ml-3'>
+              <summary className='is-text-weight-bold'>{title}</summary>
+              <dl className='ml-5'>
+                <dt className={ thumbnail ? '' : 'is-hidden' }>Thumbnail</dt>
+                <dd className={ thumbnail ? '' : 'is-hidden' }><img src={thumbnail} width='160'/></dd>
+                <dt>Raw URL</dt>
+                <dd><a href={url} target='_blank'>{url}</a></dd>
+                <dt className={ subHeadings.length > 0 ? '' : 'is-hidden'  }>Sub-Headings</dt>
+                <dd className={ subHeadings.length > 0 ? '' : 'is-hidden'  }>
+                  <ul>
+                    { 
+                      subHeadings.map( (sh: any) => {
+                        return <li>{sh.id}: {sh.label}</li>
+                      }) 
+                    }
+                  </ul>
+                </dd>
+                <div className={ subSections.length > 0 ? '' : 'is-hidden' }>
+                  <span className='is-text-weight-semibold'>Sub-Sections</span>
+                  {subSections.map( (s: any) => tocSection(s) )}                
+                </div>
+              </dl>
+            </details>
+  }
+
+  return <div className="box selected-record w-100">
+          <h2 className='title'>Table of Contents for {data.package}</h2>
+          <h3 className='subtitle'><div><a href={data.url} target="_blank">View raw HTML</a></div></h3>
+          <div className='content'>
+          {
+            'sections' in data ? data.sections.map( (sect: any) => tocSection(sect) ) 
+                                  : ''
+          }
+          </div>
+  </div>
+}
+
 function OtherFeaturesView(props: any) {
 
   const [ready,setReady] = useState(false)
@@ -22,12 +96,11 @@ function OtherFeaturesView(props: any) {
 
   useEffect(() => {
     const offset = currentPage*25
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'other-features-rows', rowMode: 'object', sql: `select id, data->>'$._url' as url, package, data->>'$._head_title' as title from documents where data->>'$._head_title'='Navigation' order by id limit 25 offset ?`, bind: [ offset ] }})     
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'other-features-rows', rowMode: 'object', sql: `select id, data->>'$._url' as url, package, title from documents where type='toc' order by id limit 25 offset ?`, bind: [ offset ] }})     
   },[ready,currentPage])
 
   useEffect(() => {
     if (!shouldBlit) { return }
-    console.log(nextRows)
     setRows(nextRows)
     setNextRows([])
     setShouldBlit(false)
@@ -70,7 +143,7 @@ function OtherFeaturesView(props: any) {
                 rows.map( (r: any) => {
                   return <tr>
                           <td>{r.id}</td>
-                          <td><a href={r.url} target="_blank">Link</a></td>
+                          <td><a href={r.url} target="_blank">View as Raw HTML</a></td>
                           <td>{r.package}</td>
                           <td>{r.title}</td>
                         </tr>
@@ -104,12 +177,11 @@ function FiguresView(props: any) {
 
   useEffect(() => {
     const offset = currentPage*25
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-rows', rowMode: 'object', sql: `select id, data->>'$._body.html' as body_html from documents where type='application/osci-tk-iip-figure' order by id limit 25 offset ?`, bind: [ offset ] }})     
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-rows', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, title from documents where type='figure' order by id limit 25 offset ?`, bind: [ offset ] }})     
   },[ready,currentPage])
 
   useEffect(() => {
     if (!shouldBlit) { return }
-    console.log(nextRows)
     setRows(nextRows)
     setNextRows([])
     setShouldBlit(false)
@@ -136,16 +208,25 @@ function FiguresView(props: any) {
             <thead>
               <tr>
                 <th>id</th>
+                <th>package</th>
+                <th>raw_link</th>
+                <th>title</th>
               </tr>
             </thead>
             <tfoot>
                 <th>id</th>
+                <th>package</th>
+                <th>raw_link</th>
+                <th>title</th>
             </tfoot>
             <tbody>
               { 
                 rows.map( (r: any) => {
                   return <tr>
                           <td>{r.id}</td>
+                          <td>{r.package}</td>
+                          <td><a href={r.url} target="_blank">View as Raw HTML</a></td>
+                          <td>{r.title}</td>
                         </tr>
 
                     })
@@ -221,12 +302,11 @@ function TextsView(props: any) {
 
   useEffect(() => {
     const offset = currentPage*25
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-rows', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, data->>'$._head_title' as head_title from documents where type='application/xhtml+xml' order by id limit 25 offset ?`, bind: [ offset ] }})     
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-rows', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, title, error from documents where type='text' or type is null order by id limit 25 offset ?`, bind: [ offset ] }})     
   },[ready,currentPage])
 
   useEffect(() => {
     if (!shouldBlit) { return }
-    console.log(nextRows)
     setRows(nextRows)
     setNextRows([])
     setShouldBlit(false)
@@ -255,7 +335,8 @@ function TextsView(props: any) {
                 <th>id</th>
                 <th>package</th>
                 <th>raw_link</th>
-                <th>head_title</th>
+                <th>title</th>
+                <th>error</th>
               </tr>
             </thead>
             <tfoot>
@@ -263,6 +344,7 @@ function TextsView(props: any) {
                 <th>package</th>
                 <th>raw_link</th>
                 <th>head_title</th>
+                <th>error</th>
             </tfoot>
             <tbody>
               { 
@@ -270,8 +352,9 @@ function TextsView(props: any) {
                   return <tr>
                           <td>{r.id}</td>
                           <td>{r.package}</td>
-                          <td><a href={r.url} target="_blank">Link</a></td>
-                          <td>{r.head_title}</td>
+                          <td><a href={r.url} target="_blank">View as Raw HTML</a></td>
+                          <td>{r.title}</td>
+                          <td>{r.error}</td>
                         </tr>
 
                     })
@@ -297,7 +380,7 @@ function PublicationsView(props: any) {
     if ( props.dbId === null ) { return }
     props.sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
 
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select id, data->>'$._href' as url, data->>'$._title' as name, data->>'$._id_urn' as id_urn, json_array_length(data,'$._spine.itemref') as spine_length  from documents where type='application/oebps-package+xml'` }})
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select id, data->>'$._href' as url, data->>'$._title' as name, data->>'$._id_urn' as id_urn, json_array_length(data,'$._spine.itemref') as spine_length, data->>'$._toc_url' as toc_url from documents where type='osci-package'` }})
 
   },[props.sqlWorker,props.dbId])
 
@@ -305,13 +388,17 @@ function PublicationsView(props: any) {
     const msg = event.data
     switch (msg.type) {
       case 'pubs-rows':
-        // console.log(event)
         if ( isResultTerminator(msg) ) { return }
         setRows( (rows: any) => [ ...rows, msg.row ] )
         break
       default:
         return
       }
+  }
+
+  const handleView = (url: string,event: any) => {
+    event.preventDefault()
+    props.setSelected(url)
   }
 
   return <div className="records records-publications">
@@ -321,17 +408,19 @@ function PublicationsView(props: any) {
               <tr>
                 <th>id</th>
                 <th>title</th>
-                <th>raw_link</th>
                 <th>id_urn</th>
                 <th>spine_length</th>
+                <th>raw_link</th>
+                <th>view</th>
               </tr>
             </thead>
             <tfoot>
                 <th>id</th>
                 <th>title</th>
-                <th>raw_link</th>
                 <th>id_urn</th>
                 <th>spine_length</th>
+                <th>raw_link</th>
+                <th>view</th>
             </tfoot>
             <tbody>
               { 
@@ -339,9 +428,10 @@ function PublicationsView(props: any) {
                   return <tr>
                           <td>{r.id}</td>
                           <td>{r.name}</td>
-                          <td><a href={r.url} target="_blank">Link</a></td>
                           <td>{r.id_urn}</td>
                           <td>{r.spine_length}</td>
+                          <td><a href={r.url} target="_blank">View as Raw HTML</a></td>
+                          <td><a href="#" target="_blank" onClick={ (e) => handleView(r.toc_url,e) } >View</a></td>
                         </tr>
 
                     })
@@ -360,6 +450,7 @@ function App() {
   const [dbId, setDbId] = useState(null)
 
   const [selectedTab,setSelectedTab] = useState('publications')
+  const [selectedTocURL,setSelectedTocURL] = useState(null)
   const [pubCount, setPubCount] = useState(null)
   const [textCount, setTextCount] = useState(null)
   const [figureCount, setFigureCount] = useState(null)
@@ -430,12 +521,17 @@ function App() {
 
     console.log(`db open with id ${dbId}`)
 
-    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'pubs-count', rowMode: '$count', sql: `select count() as count from documents where type='application/oebps-package+xml'` }})
-    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from documents where type='application/xhtml+xml'` }})
-    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from documents where type='application/osci-tk-iip-figure'` }})
-    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'other-features-count', rowMode: '$count', sql: `select count() as count from documents where data->>'$._head_title'='Navigation'` }})
+    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'pubs-count', rowMode: '$count', sql: `select count() as count from documents where type='osci-package'` }})
+    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from documents where type='text' or type is null` }})
+    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from documents where type='figure'` }})
+    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'other-features-count', rowMode: '$count', sql: `select count() as count from documents where type='toc'` }})
 
   },[dbOpen,dbId])
+
+  const handleBreadcrumbClick = (event: any) => {
+    event.preventDefault()
+    setSelectedTocURL(null)
+  }
 
   return (
       <div className="container">
@@ -445,15 +541,23 @@ function App() {
         <div className="tabs">
           <ul>
             <li className={ selectedTab == 'publications' ? 'is-active' : ''}><a onClick={ () => setSelectedTab('publications') } >{`Publications (${pubCount ?? ''})`}</a></li>
+            {/*<li className={ selectedTab == 'other-features' ? 'is-active' : ''}><a onClick={ () => setSelectedTab('other-features') }>{`Tables of Contents (${tocCount ?? ''})`}</a></li>*/}
             <li className={ selectedTab == 'texts' ? 'is-active' : ''}><a onClick={ () => setSelectedTab('texts') }>{`Texts (${textCount ?? ''})`}</a></li>
             <li className={ selectedTab == 'figures' ? 'is-active' : ''}><a onClick={ () => setSelectedTab('figures') }>{`Figures (${figureCount ?? ''})`}</a></li>
-            <li className={ selectedTab == 'other-features' ? 'is-active' : ''}><a onClick={ () => setSelectedTab('other-features') }>{`Tables of Contents (${tocCount ?? ''})`}</a></li>
           </ul>
         </div>
-        { selectedTab === 'publications' ? <PublicationsView sqlWorker={sqlWorker} count={pubCount} dbId={dbId} /> : '' }
-        { selectedTab === 'texts' ? <TextsView sqlWorker={sqlWorker} count={textCount} dbId={dbId} /> : '' }
-        { selectedTab === 'figures' ? <FiguresView sqlWorker={sqlWorker} count={figureCount} dbId={dbId} /> : ''}
-        { selectedTab === 'other-features' ? <OtherFeaturesView sqlWorker={sqlWorker} count={tocCount} dbId={dbId} /> : '' }
+        <nav className={ `breadcrumb ${ selectedTocURL === null ? 'is-hidden' : '' }` } aria-label='breadcrumbs'>
+          <ul>
+            <li><a href="#" onClick={ (e) => handleBreadcrumbClick(e) } >Publications</a></li>
+            <li className='is-active'><a href="#" aria-current='page' onClick={ (e) => e.preventDefault() } >{selectedTocURL}</a></li>
+          </ul>
+        </nav>
+        {/* TODO: These should twiddle display on selection so we pay 1 DOM manip cost */}
+        { !selectedTocURL && selectedTab === 'publications' ? <PublicationsView sqlWorker={sqlWorker} count={pubCount} dbId={dbId} setSelected={setSelectedTocURL} /> : '' }
+        { !selectedTocURL && selectedTab === 'other-features' ? <OtherFeaturesView sqlWorker={sqlWorker} count={tocCount} dbId={dbId} /> : '' }
+        { !selectedTocURL && selectedTab === 'texts' ? <TextsView sqlWorker={sqlWorker} count={textCount} dbId={dbId} /> : '' }
+        { !selectedTocURL && selectedTab === 'figures' ? <FiguresView sqlWorker={sqlWorker} count={figureCount} dbId={dbId} /> : ''}
+        { selectedTocURL !== null ? <SelectedEntityView sqlWorker={sqlWorker} selected={selectedTocURL} /> : '' }
       </div>
   )
 }
