@@ -1,6 +1,8 @@
 const { JSDOM } = require('jsdom');
 
 // TODO: Wrap everything in try/catch so we can leave a dirty exit code on fail
+// TODO: Emit to stderr on error
+
 const materializeType = (dom) => {
   switch ( dom.window.document.title.trim().toLowerCase() ) {
   case 'figure':
@@ -48,25 +50,24 @@ const parseTocSections = (doc) => {
   let sections = []
 
   const headingsList = doc.querySelector('ol')
+  if (headingsList===null) {return sections}
 
-  if (headingsList) {
-    const headings = headingsList.querySelectorAll('li')
-    headings.forEach( (hdg,idx) => {
-      const anchor = hdg.querySelector('a')
+  // We only want immediate descendant `li` tags so just walk `children`
+  for ( const hdg of Array.from(headingsList.children) ) {
 
-      if (!anchor) { return }
+    if (hdg.tagName !== 'LI') { return }
+    const anchor = hdg.querySelector('a')
 
-      const title = anchor.textContent // FIXME: This is still CDATA-wrapped?
-      const url = anchor.href
-      const id = anchor.dataset.section_id
-      const thumbnail = anchor.dataset.thumbnail 
-      const subHeadings = JSON.parse(anchor.getAttribute('data-subHead')) // NB: getAttribute() because subHead doesn't pass dataset's camelCase/snake-case xform 
-      // FIXME: JSON parse this ;) 
+    if (!anchor) { return }
 
-      const parsed = { id, url, title, thumbnail, subHeadings, subSections: parseTocSections(hdg) }
-      sections.push(parsed)
+    const title = anchor.textContent // FIXME: This probably fails do the CDATA wrapping
+    const url = anchor.href
+    const id = anchor.dataset.section_id
+    const thumbnail = anchor.dataset.thumbnail 
+    const subHeadings = JSON.parse(anchor.getAttribute('data-subHead')) // NB: getAttribute() because subHead doesn't pass dataset's camelCase/snake-case xform 
 
-    })
+    const parsed = { id, url, title, thumbnail, subHeadings, subSections: parseTocSections(hdg) }
+    sections.push(parsed)
 
   }
 

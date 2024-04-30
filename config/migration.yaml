@@ -57,7 +57,7 @@ input:
 
         let package = this.package.assign( {"_href": metadata("package") } )
         let manifest_items = this.package.manifest.item.map_each( it -> it.apply("osci_manifest_item_align") )
-        root = [ $package.apply("osci_package_align") ].concat( $manifest_items.map_each( m -> m.assign({"_id": "%s/%s".format(metadata("package"),m._id) } )  ) )
+        root = [ $package.apply("osci_package_align") ].concat( $manifest_items.map_each( m -> m.assign({"_id": "%s/%s".format(metadata("pkg_name"),m._id) } )  ) )
     - unarchive:
         format: json_array
 
@@ -160,14 +160,12 @@ pipeline:
             result_map: |
               root.assign(json())
 
-          # TODO: toc_align -- use jsdom to turn TOC-page manifest `item`s into a useful JSON structure (some of these things are _only_ here so it is really more informative than spine?) so we can do a nice internally-linked ul/li/etc-based view of the TOC
-          # TODO: type_materialize -- materialize these into types of _some_ kind so we know what is what later and don't have to markup-sense
-          # TODO: spine_materialize -- join across from package `spine` structures to their articles so we can do a nice row view of the spine
-          # TODO: glossary_align -- use jsdom to turn dl/dt/dd tags into json term / description things useful as a detail/summary tags in review
 
           # TODO: text_figures_align -- use jsdom to turn call sites at a.figure_reference and targets at figure, with extra data on @dataset-* into a useful panel view of what the figures do
-          # TODO: footnotes_align -- use jsdom to turn call sites at a.footnote-reference and targets at aside.footnote into a panel tooltip view of the footnotes
           # TODO: blocks_align -- use jsdom to turn non-figure (???) articles
+
+          # TODO: spine_materialize -- join across from package `spine` structures to their articles so we can do a nice row view of the spine
+          # TODO: glossary_align -- use jsdom to turn dl/dt/dd tags into json term / description things useful as a detail/summary tags in review
 
           # TODO: html_clean -- use jsdom or maybe pandoc to trip weird markup (eg, <span></span> dropcaps, etc etc)
           # TODO: contribution_render -- topology of processors, pulling out data from essays etc and turning it into blocks, figure, footnotes, and so on

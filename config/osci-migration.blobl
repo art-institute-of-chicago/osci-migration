@@ -17,7 +17,7 @@ map osci_package_align {
     root._id = metadata("pkg_name") 
     root._id_urn = this.metadata.identifier."#text"
     root._title = this.metadata.title."#text"
-    root._toc_url = this.manifest.item.filter( it -> it."-properties" == "nav" ).index(0)
+    root._toc_url = this.manifest.item.filter( it -> it."-properties" == "nav" ).index(0)."-href"
 
     root._type = "osci-package"
     root._format = "application/oebps-package+xml"
