@@ -22,7 +22,7 @@ function SelectedTocView(props: any) {
     return <article className='media'>
               <figure className={ `media-left ${thumbnail ? '' : 'is-hidden'}` }>
                 <p className="image is-96x96">
-                  <a href='#' onClick={ (e) => handleSelection(url,e) }>
+                  <a href='#' onClick={ (e) => handleSelection(sect.url,e) }>
                     <img src={thumbnail} />
                   </a>
                 </p>
@@ -33,7 +33,6 @@ function SelectedTocView(props: any) {
                     <strong>{title}</strong>
                     <br/>
                     <p  className={ subheads.length > 0 ? '' : 'is-hidden' } >Sub-Headings</p>
-                    <br/>
                     <dl className={ subheads.length > 0 ? '' : 'is-hidden' } >
                       { 
                         subheads.map( (sh: any) => {
@@ -41,7 +40,7 @@ function SelectedTocView(props: any) {
                         }) 
                       }
                     </dl>
-                    <small><a href='#' onClick={ (e) => handleSelection(url,e) }>View</a>&nbsp;|&nbsp;<a href={data.url} target="_blank">View raw</a></small>
+                    <small><a href='#' onClick={ (e) => handleSelection(url,e) }>View</a>&nbsp;|&nbsp;<a href={url} target="_blank">View raw</a></small>
                   </p>
                 </div>
                 {subsects.map( (s: any) => tocSection(s) )}                
@@ -62,7 +61,17 @@ function SelectedTocView(props: any) {
 
 function SelectedTextView(props: any) {
 
-  const { id, url, title, footnotes: fnotes } = props.data
+  const { id, url, title, sections: sects, footnotes: fnotes, figures: figs } = props.data
+
+  const sections = ( sects ?? [] ).map( (sect: any) => {
+
+    const { id, html } = sect
+
+    return <section className={`section ${id}-section`}>
+      <h3 className='title'>{id}</h3>
+      <div className="ml-3 content" dangerouslySetInnerHTML={{ __html: html }}></div>
+    </section>
+  })
 
   const footnotes = ( fnotes ?? [] ).map( (fn: any) => {
 
@@ -77,13 +86,28 @@ function SelectedTextView(props: any) {
             </article>
   })
 
+  const figures = ( figs ?? [] ).map( (fig: any) => {
+    return <article className='media'>
+              <div className='media-content'>
+                <div className='content'>
+                  {JSON.stringify(fig)}
+                </div>
+              </div>
+    </article>
+  })
+
   return <div className='selected-text-view'>
             <h2 className='title'>Text for {title} ({id})</h2>
             <div className='subtitle'><a href={url} target="_blank">View raw HTML</a></div>
+            {sections}
             <section className='section footnotes-section'>
               <h3 className='title'>Footnotes</h3>
                 {footnotes}
             </section>
+            <section className='section figures-section'>
+              <h3 className='title'>Figures</h3>
+                {figures}
+            </section>          
           </div>
 }
 
@@ -103,8 +127,8 @@ function SelectedEntityView(props: any) {
 
   useEffect(() => {
     if (!ready) { return }
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `select id, type, package, data->>'$._url' as url, data->>'$.footnotes' as footnotes, data->>'$.sections' as sections from documents where data->>'$._url'=?`, bind: [ props.selected ] }})     
-  },[ready,props.selected])
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `select id, type, package, data->>'$._url' as url, data->>'$.footnotes' as footnotes, data->>'$.sections' as sections, data->>'$.figures' as figures from documents where data->>'$._url'=?`, bind: [ props.selectedText ?? props.selectedToc ] }})     
+  },[ready,props.selectedText,props.selectedToc])
 
   const msgResponder = (event: any) => {
     const msg = event.data
@@ -113,107 +137,27 @@ function SelectedEntityView(props: any) {
         if ( isResultTerminator(msg) ) { 
           return
         }
-        const { id, type, package: packageId, sections: sect, footnotes: fnotes, url } = msg.row
+        const { id, type, package: packageId, sections: sect, footnotes: fnotes, url, figures: figs } = msg.row
         const sections = JSON.parse(sect)
         const footnotes = JSON.parse(fnotes)
+        const figures = JSON.parse(figs)
 
         setEntityType(type)
-        setData({id, package: packageId, sections, footnotes, url })
+        setData({id, package: packageId, sections, footnotes, figures, url })
         break
       default:
         return
       }
   }
 
-  return <div className="container selected-record">
+  return <div className={`container selected-record ${props.className}`}>
             {
               entityType === 'toc' ? <SelectedTocView data={data} setSelected={props.setSelected} /> : ''
             }
             {
-              entityType === 'text' ? <SelectedTextView data={data} setSelected={props.setSelected} /> : ''
+              entityType === 'text' ? <SelectedTextView data={data} /> : ''
             }
           </div>
-}
-
-function OtherFeaturesView(props: any) {
-
-  const [ready,setReady] = useState(false)
-  const [shouldBlit,setShouldBlit] = useState(false)
-
-  const [rows,setRows] = useState([] as any)
-  const [nextRows,setNextRows] = useState([] as any)
-
-  const [currentPage,setCurrentPage] = useState(0)
-
-  useEffect(() => {
-
-    if ( props.dbId === null ) { return }
-    props.sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
-    setReady(true)
-
-  },[props.sqlWorker,props.dbId])
-
-  useEffect(() => {
-    const offset = currentPage*25
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'other-features-rows', rowMode: 'object', sql: `select id, data->>'$._url' as url, package, title from documents where type='toc' order by id limit 25 offset ?`, bind: [ offset ] }})     
-  },[ready,currentPage])
-
-  useEffect(() => {
-    if (!shouldBlit) { return }
-    setRows(nextRows)
-    setNextRows([])
-    setShouldBlit(false)
-  },[shouldBlit])
-
-  const msgResponder = (event: any) => {
-    const msg = event.data
-    switch (msg.type) {
-      case 'other-features-rows':
-        if ( isResultTerminator(msg) ) { 
-          setShouldBlit(true) 
-          return
-        }
-        setNextRows( (nxt: any) => [ ...nxt, msg.row ])
-        break
-      default:
-        return
-      }
-  }
-
-  return (<div className="records records-other-features w-100">
-          <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
-          <table className="table is-bordered is-striped is-hoverable">
-            <thead>
-              <tr>
-                <th>id</th>
-                <th>raw_link</th>
-                <th>publication</th>
-                <th>title</th>
-              </tr>
-            </thead>
-            <tfoot>
-                <th>id</th>
-                <th>raw_link</th>
-                <th>publication</th>
-                <th>title</th>
-            </tfoot>
-            <tbody>
-              { 
-                rows.map( (r: any) => {
-                  return <tr>
-                          <td>{r.id}</td>
-                          <td><a href={r.url} target="_blank">View as Raw HTML</a></td>
-                          <td>{r.package}</td>
-                          <td>{r.title}</td>
-                        </tr>
-
-                    })
-              }
-            </tbody>
-          </table>        
-          <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
-        </div>
-  )     
 }
 
 function FiguresView(props: any) {
@@ -261,7 +205,7 @@ function FiguresView(props: any) {
       }
   }
 
-  return <div className="records records-figures">
+  return <div className={`records records-figures ${props.className}`}>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
           <table className="table is-bordered is-striped is-hoverable">
             <thead>
@@ -386,7 +330,12 @@ function TextsView(props: any) {
       }
   }
 
-  return <div className="records records-texts">
+  const handleView = (url: string,event: any) => {
+    event.preventDefault()
+    props.setSelected(url)
+  }
+
+  return <div className={`records records-texts ${props.className}`}>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
           <table className="table is-bordered is-striped is-hoverable is-fullwidth is-narrow">
             <thead>
@@ -396,6 +345,7 @@ function TextsView(props: any) {
                 <th scope='col'>raw_link</th>
                 <th scope='col'>title</th>
                 <th scope='col'>error</th>
+                <th scope='col'>view</th>
               </tr>
             </thead>
             <tfoot>
@@ -414,6 +364,7 @@ function TextsView(props: any) {
                           <td><a href={r.url} target="_blank">View as Raw HTML</a></td>
                           <td>{r.title}</td>
                           <td >{r.error}</td>
+                          <td><a href="#" target="_blank" onClick={ (e) => handleView(r.url,e) } >View</a></td>
                         </tr>
 
                     })
@@ -439,7 +390,7 @@ function PublicationsView(props: any) {
     if ( props.dbId === null ) { return }
     props.sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
 
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select id, data->>'$._href' as url, data->>'$._title' as name, data->>'$._id_urn' as id_urn, json_array_length(data,'$._spine.itemref') as spine_length, data->>'$._toc_url' as toc_url, data->>'$._reader_url' as osci_url from documents where type='osci-package'` }})
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select id, data->>'$._href' as url, title as name, data->>'$._id_urn' as id_urn, json_array_length(data,'$._spine.itemref') as spine_length, data->>'$._toc_url' as toc_url, data->>'$._reader_url' as osci_url from documents where type='osci-package'` }})
 
   },[props.sqlWorker,props.dbId])
 
@@ -460,7 +411,7 @@ function PublicationsView(props: any) {
     props.setSelected(url)
   }
 
-  return <div className="records records-publications">
+  return <div className={`records records-publications ${props.className}`}>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
           <table className="table is-bordered is-striped is-hoverable">
             <thead>
@@ -513,15 +464,32 @@ function App() {
 
   const [selectedTab,setSelectedTab] = useState('publications')
   const [selectedTocURL,setSelectedTocURL] = useState(null)
+  const [selectedTextURL,setSelectedTextURL] = useState(null)
+  const [selectedTocLabel,setSelectedTocLabel] = useState(null)
+  const [selectedTextLabel,setSelectedTextLabel] = useState(null)
   const [pubCount, setPubCount] = useState(null)
   const [textCount, setTextCount] = useState(null)
   const [figureCount, setFigureCount] = useState(null)
-  const [tocCount, setTocCount] = useState(null)
 
   const sqlWorker = useMemo(
                       () => new Worker(new URL( './worker.js',import.meta.url)), 
                             []
                       )
+
+  const tabLabels = (tab: string) => {
+
+    switch (tab) {
+    case 'publications':
+      return 'Publications'
+    case 'texts':
+      return 'Texts'
+    case 'figures':
+      return 'Figures' 
+    default:
+      return ''     
+    }
+
+  }
 
   const msgResponder = (event: any) => {
     const msg = event.data
@@ -550,9 +518,13 @@ function App() {
         if ( isResultTerminator(msg) ) { return }
         setFigureCount(msg.row)
         break
-      case 'other-features-count':
+      case 'selected-toc-label':
         if ( isResultTerminator(msg) ) { return }
-        setTocCount(msg.row)
+        setSelectedTocLabel(msg.row)
+        break
+      case 'selected-text-label':
+        if ( isResultTerminator(msg) ) { return }
+        setSelectedTextLabel(msg.row)
         break
       default:
         return
@@ -586,40 +558,62 @@ function App() {
     sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'pubs-count', rowMode: '$count', sql: `select count() as count from documents where type='osci-package'` }})
     sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from documents where type='text' or type is null` }})
     sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from documents where type='figure'` }})
-    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'other-features-count', rowMode: '$count', sql: `select count() as count from documents where type='toc'` }})
 
   },[dbOpen,dbId])
 
-  const handleBreadcrumbClick = (event: any) => {
+  const handleRootClick = (event: any) => {
     event.preventDefault()
     setSelectedTocURL(null)
+    setSelectedTextURL(null)
   }
 
+  const handleBreadcrumbClick = (event: any) => {
+    event.preventDefault()
+    setSelectedTextURL(null)
+    setSelectedTextLabel(null)
+  }
+
+  const handleTabClick = (tab: string) => {
+    setSelectedTab(tab)
+    setSelectedTocURL(null)
+    setSelectedTextURL(null)
+  }
+
+  const selectTOC = (url: any) => {
+    setSelectedTocURL(url)
+    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'selected-toc-label', rowMode: '$title', sql: `select title from documents where type='osci-package' and data->>'$._toc_url'=?`, bind: [ url ]  }})
+  }
+
+  const selectText = (url: any) => {
+    setSelectedTextURL(url)
+    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'selected-text-label', rowMode: '$title', sql: `select title from documents where type='text' and data->>'$._url'=?`, bind: [ url ]  }})
+  }
+
+  const showBreadcrumbs = !selectedTocURL && !selectedTextURL
   return (
       <div className="container">
 
         <h1 className="title is-2 mb-3">OSCI Publications</h1>
 
-        <div className="tabs">
+        <div className={`tabs`}>
           <ul>
-            <li className={ selectedTab == 'publications' ? 'is-active' : ''}><a onClick={ () => setSelectedTab('publications') } >{`Publications (${pubCount ?? ''})`}</a></li>
-            {/*<li className={ selectedTab == 'other-features' ? 'is-active' : ''}><a onClick={ () => setSelectedTab('other-features') }>{`Tables of Contents (${tocCount ?? ''})`}</a></li>*/}
-            <li className={ selectedTab == 'texts' ? 'is-active' : ''}><a onClick={ () => setSelectedTab('texts') }>{`Texts (${textCount ?? ''})`}</a></li>
-            <li className={ selectedTab == 'figures' ? 'is-active' : ''}><a onClick={ () => setSelectedTab('figures') }>{`Figures (${figureCount ?? ''})`}</a></li>
+            <li className={ selectedTab == 'publications' ? 'is-active' : ''}><a onClick={ () => handleTabClick('publications') } >{`${ tabLabels('publications') } (${pubCount ?? ''})`}</a></li>
+            <li className={ selectedTab == 'texts' ? 'is-active' : ''}><a onClick={ () => handleTabClick('texts') }>{`${ tabLabels('texts') } (${textCount ?? ''})`}</a></li>
+            <li className={ selectedTab == 'figures' ? 'is-active' : ''}><a onClick={ () => handleTabClick('figures') }>{`${ tabLabels('figures') } (${figureCount ?? ''})`}</a></li>
           </ul>
         </div>
-        <nav className={ `breadcrumb ${ selectedTocURL === null ? 'is-hidden' : '' }` } aria-label='breadcrumbs'>
+        <nav className={ `breadcrumb ${ showBreadcrumbs ? 'is-hidden' : '' }` } aria-label='breadcrumbs'>
           <ul>
-            <li><a href="#" onClick={ (e) => handleBreadcrumbClick(e) } >Publications</a></li>
-            <li className='is-active'><a href="#" aria-current='page' onClick={ (e) => e.preventDefault() } >{selectedTocURL}</a></li>
+            <li><a href="#" onClick={ (e) => handleRootClick(e) } >{ `${ tabLabels(selectedTab) }` }</a></li>
+            <li className={ selectedTocURL && selectedTextURL ? '' : 'is-hidden' } ><a href="#" onClick={ (e) => handleBreadcrumbClick(e) } >{ `${ selectedTocLabel }` }</a></li>
+            <li className='is-active'><a href="#" aria-current='page' onClick={ (e) => e.preventDefault() } >{ selectedTextLabel ?? selectedTocLabel }</a></li>
           </ul>
         </nav>
-        {/* TODO: These should twiddle display on selection so we pay 1 DOM manip cost */}
-        { !selectedTocURL && selectedTab === 'publications' ? <PublicationsView sqlWorker={sqlWorker} count={pubCount} dbId={dbId} setSelected={setSelectedTocURL} /> : '' }
-        { !selectedTocURL && selectedTab === 'other-features' ? <OtherFeaturesView sqlWorker={sqlWorker} count={tocCount} dbId={dbId} /> : '' }
-        { !selectedTocURL && selectedTab === 'texts' ? <TextsView sqlWorker={sqlWorker} count={textCount} dbId={dbId} /> : '' }
-        { !selectedTocURL && selectedTab === 'figures' ? <FiguresView sqlWorker={sqlWorker} count={figureCount} dbId={dbId} /> : ''}
-        { selectedTocURL !== null ? <SelectedEntityView sqlWorker={sqlWorker} selected={selectedTocURL} setSelected={setSelectedTocURL} /> : '' }
+        {/* TODO: These should twiddle display on selection so we DOM manip cost once */}
+        <PublicationsView className={ !selectedTextURL && !selectedTocURL && selectedTab === 'publications' ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={pubCount} dbId={dbId} setSelected={selectTOC} />
+        <TextsView className={ !selectedTextURL && !selectedTocURL && selectedTab === 'texts' ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={textCount} dbId={dbId} setSelected={selectText} /> {  }
+        <FiguresView className={ !selectedTextURL && !selectedTocURL && selectedTab === 'figures' ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={figureCount} dbId={dbId} /> 
+        <SelectedEntityView className={ selectedTextURL !== null || selectedTocURL !== null ? '' : 'is-hidden' } sqlWorker={sqlWorker} selectedText={selectedTextURL} selectedToc={selectedTocURL} setSelected={selectText} />
       </div>
   )
 }
