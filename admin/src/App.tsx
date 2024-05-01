@@ -3,10 +3,95 @@ import './App.css'
 
 import dbFile from './data/migration.sqlite3?url'
 
+function SelectedTocView(props: any) {
+
+  const { data } = props
+
+  const tocSection = (sect: any) => {
+
+    const { title, url, thumbnail, subHeadings, subSections } = sect
+
+    const subheads = subHeadings ?? []
+    const subsects = subSections ?? []
+
+    const handleSelection = (url: string,event: any) => {
+      event.preventDefault()
+      props.setSelected(url)
+    }
+
+    return <article className='media'>
+              <figure className={ `media-left ${thumbnail ? '' : 'is-hidden'}` }>
+                <p className="image is-96x96">
+                  <a href='#' onClick={ (e) => handleSelection(url,e) }>
+                    <img src={thumbnail} />
+                  </a>
+                </p>
+              </figure>
+              <div className='media-content'> 
+                <div className='content'>
+                  <p>
+                    <strong>{title}</strong>
+                    <br/>
+                    <p  className={ subheads.length > 0 ? '' : 'is-hidden' } >Sub-Headings</p>
+                    <br/>
+                    <dl className={ subheads.length > 0 ? '' : 'is-hidden' } >
+                      { 
+                        subheads.map( (sh: any) => {
+                          return <><span className='is-text-weight-semibold'>{sh.id}:</span>&nbsp;<span>{sh.label}</span><br/></>
+                        }) 
+                      }
+                    </dl>
+                    <small><a href='#' onClick={ (e) => handleSelection(url,e) }>View</a>&nbsp;|&nbsp;<a href={data.url} target="_blank">View raw</a></small>
+                  </p>
+                </div>
+                {subsects.map( (s: any) => tocSection(s) )}                
+              </div>
+          </article>
+
+  }
+
+  return <div className='selected-toc-view'>
+                <h2 className='title'>Table of Contents for {data.package}</h2>
+                <div className='subtitle'><a href={data.url} target='_blank'>View raw</a></div>
+                {
+                  'sections' in data ? data.sections.map( (sect: any) => tocSection(sect) ) : ''
+                }
+              </div>
+
+}
+
+function SelectedTextView(props: any) {
+
+  const { id, url, title, footnotes: fnotes } = props.data
+
+  const footnotes = ( fnotes ?? [] ).map( (fn: any) => {
+
+    return <article className='media' id={fn.id}>
+              <div className='media-left'>
+                <span className='is-text-weight-semibold'>{fn.index}</span>
+              </div>
+              <div className='media-content'>
+                <div className='content' dangerouslySetInnerHTML={{ __html: fn.noteHtml}}>
+                </div>
+              </div>
+            </article>
+  })
+
+  return <div className='selected-text-view'>
+            <h2 className='title'>Text for {title} ({id})</h2>
+            <div className='subtitle'><a href={url} target="_blank">View raw HTML</a></div>
+            <section className='section footnotes-section'>
+              <h3 className='title'>Footnotes</h3>
+                {footnotes}
+            </section>
+          </div>
+}
+
 function SelectedEntityView(props: any) {
 
   const [ready,setReady] = useState(false)
   const [data,setData] = useState({} as any)
+  const [entityType,setEntityType] = useState(null)
 
   useEffect(() => {
 
@@ -18,7 +103,7 @@ function SelectedEntityView(props: any) {
 
   useEffect(() => {
     if (!ready) { return }
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, data->>'$.sections' as sections from documents where data->>'$._url'=?`, bind: [ props.selected ] }})     
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `select id, type, package, data->>'$._url' as url, data->>'$.footnotes' as footnotes, data->>'$.sections' as sections from documents where data->>'$._url'=?`, bind: [ props.selected ] }})     
   },[ready,props.selected])
 
   const msgResponder = (event: any) => {
@@ -28,57 +113,26 @@ function SelectedEntityView(props: any) {
         if ( isResultTerminator(msg) ) { 
           return
         }
-        const { id, package: packageId, sections, url } = msg.row
-        const sect = JSON.parse(sections)
+        const { id, type, package: packageId, sections: sect, footnotes: fnotes, url } = msg.row
+        const sections = JSON.parse(sect)
+        const footnotes = JSON.parse(fnotes)
 
-        setData({id, package: packageId, sections: sect, url })
+        setEntityType(type)
+        setData({id, package: packageId, sections, footnotes, url })
         break
       default:
         return
       }
   }
 
-  const tocSection = (sect: any) => {
-    const { title, url, thumbnail, subHeadings, subSections } = sect
-
-    const subheads = subHeadings ?? []
-    const subsects = subSections ?? []
-
-    return <details className='ml-3'>
-              <summary className='is-text-weight-bold'>{title}</summary>
-              <dl className='ml-5'>
-                <dt className={ thumbnail ? '' : 'is-hidden' }>Thumbnail</dt>
-                <dd className={ thumbnail ? '' : 'is-hidden' }><img src={thumbnail} width='160'/></dd>
-                <dt>Raw URL</dt>
-                <dd><a href={url} target='_blank'>{url}</a></dd>
-                <dt className={ subheads.length > 0 ? '' : 'is-hidden'  }>Sub-Headings</dt>
-                <dd className={ subheads.length > 0 ? '' : 'is-hidden'  }>
-                  <ul>
-                    { 
-                      subheads.map( (sh: any) => {
-                        return <li>{sh.id}: {sh.label}</li>
-                      }) 
-                    }
-                  </ul>
-                </dd>
-                <div className={ subsects.length > 0 ? '' : 'is-hidden' }>
-                  <span className='is-text-weight-semibold'>Sub-Sections</span>
-                  {subsects.map( (s: any) => tocSection(s) )}                
-                </div>
-              </dl>
-            </details>
-  }
-
-  return <div className="box selected-record">
-          <h2 className='title'>Table of Contents for {data.package}</h2>
-          <h3 className='subtitle'><div><a href={data.url} target="_blank">View raw HTML</a></div></h3>
-          <div className='content'>
-          {
-            'sections' in data ? data.sections.map( (sect: any) => tocSection(sect) ) 
-                                  : ''
-          }
+  return <div className="container selected-record">
+            {
+              entityType === 'toc' ? <SelectedTocView data={data} setSelected={props.setSelected} /> : ''
+            }
+            {
+              entityType === 'text' ? <SelectedTextView data={data} setSelected={props.setSelected} /> : ''
+            }
           </div>
-  </div>
 }
 
 function OtherFeaturesView(props: any) {
@@ -359,7 +413,7 @@ function TextsView(props: any) {
                           <td>{r.package}</td>
                           <td><a href={r.url} target="_blank">View as Raw HTML</a></td>
                           <td>{r.title}</td>
-                          <td >{r.error}&nbsp;</td>
+                          <td >{r.error}</td>
                         </tr>
 
                     })
@@ -565,7 +619,7 @@ function App() {
         { !selectedTocURL && selectedTab === 'other-features' ? <OtherFeaturesView sqlWorker={sqlWorker} count={tocCount} dbId={dbId} /> : '' }
         { !selectedTocURL && selectedTab === 'texts' ? <TextsView sqlWorker={sqlWorker} count={textCount} dbId={dbId} /> : '' }
         { !selectedTocURL && selectedTab === 'figures' ? <FiguresView sqlWorker={sqlWorker} count={figureCount} dbId={dbId} /> : ''}
-        { selectedTocURL !== null ? <SelectedEntityView sqlWorker={sqlWorker} selected={selectedTocURL} /> : '' }
+        { selectedTocURL !== null ? <SelectedEntityView sqlWorker={sqlWorker} selected={selectedTocURL} setSelected={setSelectedTocURL} /> : '' }
       </div>
   )
 }
