@@ -54,6 +54,7 @@ const parseTextSections = (doc) => {
     const text = s.textContent
 
     // TODO: Consider parsing further to handle footnote, figure refs, and internal pub links (eg, /reader/* -> /reader/* )
+    // TODO: Consider stripping embedded @style attributes (are these only style="text-align: left"??)
     const html = s.innerHTML
 
     result.push({id,text,html})
@@ -143,7 +144,7 @@ const parseTocSections = (doc) => {
     const result = { "_type": type }
 
     if (dom.window.document.title) {
-      result.head_title = dom.window.document.title.trim()
+      result._title = dom.window.document.title.trim()
     }
 
     switch (type) {
