@@ -40,12 +40,64 @@ const parseFootnotes = (doc) => {
   return footnotes
 }
 
-// For now just parse texts into Sections?
+// OSCI uses `section` tags to identify page sub-heads, so expose those minus `footnotes` and `figures`
 const parseTextSections = (doc) => {
 
+  const sects = doc.querySelectorAll('section')
+  let result = []
+
+  sects.forEach( (s) => {
+
+    if (s.id === 'footnotes' || s.id === 'figures') { return }
+
+    const id = s.id
+    const text = s.textContent
+
+    // TODO: Consider parsing further to handle footnote, figure refs, and internal pub links (eg, /reader/* -> /reader/* )
+    const html = s.innerHTML
+
+    result.push({id,text,html})
+
+  })
+
+  return result
+}
+
+const parseFigureSection = (doc) => {
+
+  const sect = doc.querySelector('section#figures')
+  let result = []
+
+  if (sect) {
+    const figs = sect.querySelectorAll('figure')
+    figs.forEach( (fig) => {
+
+      const id = fig.id
+      const title = fig.title
+      const position = fig.dataset.position
+      const columns = fig.dataset.columns // FIXME: Number()
+      const figure_type = fig.dataset.figure_type
+      const aspect = fig.dataset.aspect // FIXME: Number()
+      const options = fig.dataset.options // FIXME: JSON.parse()
+      const order = fig.dataset.order // FIXME: Number()
+      const count = fig.dataset.count // FIXME: NUmber()
+
+      // FIXME: caption_html
+      // FIXME: thumbnail
+      // FIXME: img alt text
+      // FIXME: figure layer target -- this is the `object` tag
+      // FIXME: fallback content?
+
+      result.push({id,title,position,columns,figure_type,aspect,options,order,count})
+
+    })
+  }
+
+  return result
 }
 
 const parseTocSections = (doc) => {
+
   // TODO: Consider destructuring sections array and passing a tree of section ids
   let sections = []
 
@@ -96,14 +148,21 @@ const parseTocSections = (doc) => {
 
     switch (type) {
     case 'toc':
-      const sections = parseTocSections(dom.window.document) 
-      result.sections = sections
+      const tocSections = parseTocSections(dom.window.document) 
+      result.sections = tocSections
       break
     case 'figure':
       break
     case 'text':
       const notes = parseFootnotes(dom.window.document)
       result.footnotes = notes
+
+      const textSections = parseTextSections(dom.window.document)
+      result.sections = textSections
+
+      const figs = parseFigureSection(dom.window.document)
+      result.figures = figs
+
       break
     }
 
