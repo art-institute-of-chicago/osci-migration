@@ -3,6 +3,10 @@ import './App.css'
 
 import dbFile from './data/migration.sqlite3?url'
 
+function LoadingView(props: any) {
+  return <progress className={`progress is-success ${ props.ready ? 'is-hidden' : '' }`} value={undefined} max="100">&nbsp;</progress>
+}
+
 function Pagination(props: any) {
 
   // NB: `current` is 0-indexed while `pages` and `p` are 1-indexed!!
@@ -25,9 +29,12 @@ function Pagination(props: any) {
     return [0,'...'].concat(center).concat(['...',pages-1]) 
   }
 
+  const showPrev = current > 0
+  const showNext = (current + 1) < pages
+
   return <nav className="pagination" role="navigation" aria-label="pagination">
-            <a className={`pagination-previous ${ current > 0 ? '' : 'is-disabled' }`} onClick={ () => setCurrent(current-1) } href="#">Previous</a>
-            <a className={`pagination-next ${ (current + 1) < pages ? '' : 'is-disabled' }` } onClick={ () => setCurrent(current+1) }  href="#">Next page</a>
+            <a className={`pagination-previous ${ showPrev ? '' : 'is-disabled' }`} {...{disabled: !showPrev }} onClick={ () => showPrev ? setCurrent( current-1 ) : null } href="#">Previous</a>
+            <a className={`pagination-next ${ showNext ? '' : 'is-disabled' }` } {...{disabled: !showNext }} onClick={ () => showNext ? setCurrent( current + 1 ) : null }  href="#">Next page</a>
             <ul className="pagination-list">
               {
                 pagesToPagination(pages,current).map( (p) => {
@@ -296,8 +303,18 @@ function FiguresView(props: any) {
   }
 
   const handleFacetChange = (event: any) => {
+
+    const facet = event.target.value === 'all' || event.target.value === 'clear' ? null : event.target.value 
     setCurrentPage(0)
-    setSelectedFacet(event.target.value === 'all' || event.target.value === 'clear' ? null : event.target.value )
+    setSelectedFacet(facet)
+
+    if (facet){      
+      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from documents where type='figure' and package=?`, bind: [ facet ] }})
+      return
+    }
+
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from documents where type='figure'` }})
+
   }
 
   return <div className={`records records-figures ${props.className}`}>
@@ -447,8 +464,18 @@ function TextsView(props: any) {
   }
 
   const handleFacetChange = (event: any) => {
+
+    const facet = event.target.value === 'all' || event.target.value === 'clear' ? null : event.target.value 
     setCurrentPage(0)
-    setSelectedFacet(event.target.value === 'all' || event.target.value === 'clear' ? null : event.target.value )
+    setSelectedFacet(facet)
+
+    if (facet){      
+      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from documents where ( type='text' or type is null ) and package=?`, bind: [ facet ] }})
+      return
+    }
+
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from documents where ( type='text' or type is null )` }})
+
   }
 
   return <div className={`records records-texts ${props.className}`}>
@@ -727,6 +754,11 @@ function App() {
   }
 
   const showBreadcrumbs = !selectedTocURL && !selectedTextURL
+  const showPublications = !selectedTextURL && !selectedTocURL && selectedTab === 'publications' && dbOpen
+  const showTexts = !selectedTextURL && !selectedTocURL && selectedTab === 'texts' && dbOpen
+  const showFigures = !selectedTextURL && !selectedTocURL && selectedTab === 'figures' && dbOpen
+  const showSelectedEntity = selectedTextURL !== null || selectedTocURL !== null && dbOpen
+
   return (
       <div className="container">
 
@@ -746,10 +778,11 @@ function App() {
             <li className='is-active'><a href="#" aria-current='page' onClick={ (e) => e.preventDefault() } >{ selectedTextLabel ?? selectedTocLabel }</a></li>
           </ul>
         </nav>
-        <PublicationsView className={ !selectedTextURL && !selectedTocURL && selectedTab === 'publications' ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={pubCount} dbId={dbId} setSelected={selectTOC} />
-        <TextsView className={ !selectedTextURL && !selectedTocURL && selectedTab === 'texts' ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={textCount} dbId={dbId} setSelected={selectText} /> {  }
-        <FiguresView className={ !selectedTextURL && !selectedTocURL && selectedTab === 'figures' ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={figureCount} dbId={dbId} /> 
-        <SelectedEntityView className={ selectedTextURL !== null || selectedTocURL !== null ? '' : 'is-hidden' } sqlWorker={sqlWorker} selectedText={selectedTextURL} selectedToc={selectedTocURL} setSelected={selectText} />
+        <LoadingView ready={dbOpen} />
+        <PublicationsView className={ showPublications ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={pubCount} dbId={dbId} setSelected={selectTOC} />
+        <TextsView className={ showTexts ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={textCount} setCount={setTextCount} dbId={dbId} setSelected={selectText} /> {  }
+        <FiguresView className={ showFigures ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={figureCount}  setCount={setFigureCount} dbId={dbId} /> 
+        <SelectedEntityView className={ showSelectedEntity ? '' : 'is-hidden' } sqlWorker={sqlWorker} selectedText={selectedTextURL} selectedToc={selectedTocURL} setSelected={selectText} />
       </div>
   )
 }
