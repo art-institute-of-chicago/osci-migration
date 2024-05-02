@@ -3,6 +3,56 @@ import './App.css'
 
 import dbFile from './data/migration.sqlite3?url'
 
+function Pagination(props: any) {
+
+  // NB: `current` is 0-indexed while `pages` and `p` are 1-indexed!!
+  const { current, count, pageSize, setCurrent } = props
+  const pages = Math.ceil( count / pageSize )
+  const centerPage = Math.floor( pages / 2 )
+
+  // Returns an array of pagination items for bulma's pagination
+  const pagesToPagination = (pages: number,current: number) => {
+
+    const ellipsesAbove = 7 // The smallest ellipsed pagination is length 7: [0] + [ ... ] + [<center 3 numbers>] + [...] + [last]
+    if (pages <= ellipsesAbove) {
+      return [...Array(pages).keys()]
+    }
+
+    // TODO: A little rough here if you're on p = 1 or p = pages - 2
+    // TODO: Drop the page nums on mobile, next/prev take over full width
+    // Capture the center three numbers
+    const center: ( string | number )[] = current < 1 ? [ centerPage - 1, centerPage, centerPage + 1 ] : [ current - 1 , current, current + 1  ] 
+    return [0,'...'].concat(center).concat(['...',pages-1]) 
+  }
+
+  return <nav className="pagination" role="navigation" aria-label="pagination">
+            <a className={`pagination-previous ${ current > 0 ? '' : 'is-disabled' }`} onClick={ () => setCurrent(current-1) } href="#">Previous</a>
+            <a className={`pagination-next ${ (current + 1) < pages ? '' : 'is-disabled' }` } onClick={ () => setCurrent(current+1) }  href="#">Next page</a>
+            <ul className="pagination-list">
+              {
+                pagesToPagination(pages,current).map( (p) => {
+                    if (typeof p === 'string' && p === '...') {
+                      return <li><span className="pagination-ellipsis">&hellip;</span></li>
+                    } 
+
+                    if (typeof p === 'number') {
+                      return <li>
+                            <a href="#" className={`pagination-link ${ current === p ? 'is-current' : '' }`} aria-label={`Goto page ${p+1}`} onClick={ () => setCurrent(p) }>{p+1}</a>
+                            </li>                      
+                    }
+
+                    return ''
+
+                })
+              }
+         </ul>
+          </nav>
+}
+
+function SortedHeaderLabel(props: any) {
+  return <span className='icon-text'><span>{props.children}</span><span className={`icon ${props.showIcon ? '' : 'is-hidden' }`}>{ props.order === 'ASC' ? '⬆' : '⬇' }</span></span>
+}
+
 function SelectedTocView(props: any) {
 
   const { data } = props
@@ -169,6 +219,10 @@ function FiguresView(props: any) {
   const [nextRows,setNextRows] = useState([] as any)
 
   const [currentPage,setCurrentPage] = useState(0)
+  const [sortColumn,setSortColumn] = useState('id')
+  const [sortOrder,setSortOrder] = useState('ASC')
+  const [facet,setFacet] = useState(null as any)
+  const [selectedFacet,setSelectedFacet] = useState(null as any)
 
   useEffect(() => {
 
@@ -179,20 +233,43 @@ function FiguresView(props: any) {
   },[props.sqlWorker,props.dbId])
 
   useEffect(() => {
+
+    if (!ready) { return }
+    if (!facet) {
+      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-facet', rowMode: 'object', sql: `select distinct package as pkg from documents where type='figure'`, bind: [  ] }})     
+    }
+
     const offset = currentPage*25
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-rows', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, title from documents where type='figure' order by id limit 25 offset ?`, bind: [ offset ] }})     
-  },[ready,currentPage])
+
+    // TODO: Ease the query params here so we can select on empty package and still get all results
+    if (selectedFacet) {
+      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-rows', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, title, error from documents where type='figure' and package=? order by ${sortColumn} ${sortOrder} limit 25 offset ?`, bind: [ selectedFacet, offset ] }})     
+      return
+    }
+
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-rows', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, title from documents where type='figure' order by ${sortColumn} ${sortOrder} limit 25 offset ?`, bind: [ offset ] }})     
+
+  },[ready,currentPage,sortColumn,sortOrder,selectedFacet])
 
   useEffect(() => {
+
     if (!shouldBlit) { return }
     setRows(nextRows)
     setNextRows([])
     setShouldBlit(false)
+
   },[shouldBlit])
 
   const msgResponder = (event: any) => {
     const msg = event.data
     switch (msg.type) {
+      case 'figures-facet':
+        if ( isResultTerminator(msg) ) { return }
+        setFacet( (nxt: any) => {
+          if (!nxt) { return [ msg.row.pkg ]}
+          return [ ...nxt, msg.row.pkg ]
+        })
+        break
       case 'figures-rows':
         if ( isResultTerminator(msg) ) { 
           setShouldBlit(true) 
@@ -205,13 +282,52 @@ function FiguresView(props: any) {
       }
   }
 
+  const handleSortClick = (col: string,event: any) => {
+    event.preventDefault()
+
+    setCurrentPage(0)
+    if (col === sortColumn) {
+      setSortOrder( sortOrder === 'ASC' ? 'DESC' : 'ASC' )
+      return
+    }
+
+    setSortColumn(col)
+    setSortOrder('ASC')
+  }
+
+  const handleFacetChange = (event: any) => {
+    setCurrentPage(0)
+    setSelectedFacet(event.target.value === 'all' || event.target.value === 'clear' ? null : event.target.value )
+  }
+
   return <div className={`records records-figures ${props.className}`}>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
+          <div className='field'>
+
+            <div className='control'>
+
+              <div className='select'>
+                <select value={ selectedFacet ?? 'all' } onChange={ (e) => handleFacetChange(e) }>
+                  <option value='all'>Select publication</option>
+                  { 
+                    (facet ?? []).map( (p: any) => {
+                      return <option value={p} >{p}</option>
+                    }) 
+                  }
+                  {
+                    ( selectedFacet ? <option value='clear'>Clear</option> : '' )
+                  }
+                </select>
+              </div>
+              
+            </div>
+
+          </div>
           <table className="table is-bordered is-striped is-hoverable">
             <thead>
               <tr>
-                <th>id</th>
-                <th>package</th>
+                <th><a href="#" onClick={ (e) => handleSortClick('id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'id' } order={sortOrder} >id</SortedHeaderLabel></a></th>
+                <th><a href="#" onClick={ (e) => handleSortClick('package',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'package' } order={sortOrder} >package</SortedHeaderLabel></a></th>
                 <th>raw_link</th>
                 <th>title</th>
               </tr>
@@ -240,52 +356,9 @@ function FiguresView(props: any) {
         </div>
 }
 
-function Pagination(props: any) {
-
-  // NB: `current` is 0-indexed while `pages` and `p` are 1-indexed!!
-  const { current, count, pageSize, setCurrent } = props
-  const pages = Math.ceil( count / pageSize )
-  const centerPage = Math.floor( pages / 2 )
-
-  // Returns an array of pagination items for bulma's pagination
-  const pagesToPagination = (pages: number,current: number) => {
-
-    const ellipsesAbove = 7 // The smallest ellipsed pagination is length 7: [0] + [ ... ] + [<center 3 numbers>] + [...] + [last]
-    if (pages <= ellipsesAbove) {
-      return [...Array(pages).keys()]
-    }
-
-    // TODO: A little rough here if you're on p = 1 or p = pages - 2
-    // Capture the center three numbers
-    const center: ( string | number )[] = current < 1 ? [ centerPage - 1, centerPage, centerPage + 1 ] : [ current - 1 , current, current + 1  ] 
-    return [0,'...'].concat(center).concat(['...',pages-1]) 
-  }
-
-  return <nav className="pagination" role="navigation" aria-label="pagination">
-            <a className={`pagination-previous ${ current > 0 ? '' : 'is-disabled' }`} onClick={ () => setCurrent(current-1) } href="#">Previous</a>
-            <a className={`pagination-next ${ (current + 1) < pages ? '' : 'is-disabled' }` } onClick={ () => setCurrent(current+1) }  href="#">Next page</a>
-            <ul className="pagination-list">
-              {
-                pagesToPagination(pages,current).map( (p) => {
-                    if (typeof p === 'string' && p === '...') {
-                      return <li><span className="pagination-ellipsis">&hellip;</span></li>
-                    } 
-
-                    if (typeof p === 'number') {
-                      return <li>
-                            <a href="#" className={`pagination-link ${ current === p ? 'is-current' : '' }`} aria-label={`Goto page ${p+1}`} onClick={ () => setCurrent(p) }>{p+1}</a>
-                            </li>                      
-                    }
-
-                    return ''
-
-                })
-              }
-         </ul>
-          </nav>
-}
-
 function TextsView(props: any) {
+
+  // TODO: Wrap ASC/DESC and Column sort names in an (internal) enum
 
   const [ready,setReady] = useState(false)
   const [shouldBlit,setShouldBlit] = useState(false)
@@ -294,6 +367,10 @@ function TextsView(props: any) {
   const [nextRows,setNextRows] = useState([] as any)
 
   const [currentPage,setCurrentPage] = useState(0)
+  const [sortColumn,setSortColumn] = useState('id')
+  const [sortOrder,setSortOrder] = useState('ASC')
+  const [facet,setFacet] = useState(null as any)
+  const [selectedFacet,setSelectedFacet] = useState(null as any)
 
   useEffect(() => {
 
@@ -304,9 +381,23 @@ function TextsView(props: any) {
   },[props.sqlWorker,props.dbId])
 
   useEffect(() => {
+
+    if (!ready) { return }
+    if (!facet) {
+      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-facet', rowMode: 'object', sql: `select distinct package as pkg from documents where type='text' or type is null`, bind: [  ] }})     
+    }
+
     const offset = currentPage*25
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-rows', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, title, error from documents where type='text' or type is null order by id limit 25 offset ?`, bind: [ offset ] }})     
-  },[ready,currentPage])
+
+    // TODO: Ease the query params here so we can select on empty package and still get all results
+    if (selectedFacet) {
+      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-rows', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, title, error from documents where ( type='text' or type is null ) and ( package=? ) order by ${sortColumn} ${sortOrder} limit 25 offset ?`, bind: [ selectedFacet, offset ] }})     
+      return
+    }
+
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-rows', rowMode: 'object', sql: `select id as id, package as package, data->>'$._url' as url, title, error from documents where type='text' or type is null order by ${sortColumn} ${sortOrder} limit 25 offset ?`, bind: [ offset ] }})     
+
+  },[ready,currentPage,sortColumn,sortOrder,selectedFacet])
 
   useEffect(() => {
     if (!shouldBlit) { return }
@@ -318,6 +409,13 @@ function TextsView(props: any) {
   const msgResponder = (event: any) => {
     const msg = event.data
     switch (msg.type) {
+      case 'texts-facet':
+        if ( isResultTerminator(msg) ) { return }
+        setFacet( (nxt: any) => {
+          if (!nxt) { return [ msg.row.pkg ]}
+          return [ ...nxt, msg.row.pkg ]
+        })
+        break
       case 'texts-rows':
         if ( isResultTerminator(msg) ) { 
           setShouldBlit(true) 
@@ -335,16 +433,55 @@ function TextsView(props: any) {
     props.setSelected(url)
   }
 
+  const handleSortClick = (col: string,event: any) => {
+    event.preventDefault()
+
+    setCurrentPage(0)
+    if (col === sortColumn) {
+      setSortOrder( sortOrder === 'ASC' ? 'DESC' : 'ASC' )
+      return
+    }
+
+    setSortColumn(col)
+    setSortOrder('ASC')
+  }
+
+  const handleFacetChange = (event: any) => {
+    setCurrentPage(0)
+    setSelectedFacet(event.target.value === 'all' || event.target.value === 'clear' ? null : event.target.value )
+  }
+
   return <div className={`records records-texts ${props.className}`}>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
+          <div className='field'>
+
+            <div className='control'>
+
+              <div className='select'>
+                <select value={ selectedFacet === null ? 'all' : selectedFacet } onChange={ (e) => handleFacetChange(e) }>
+                  <option value='all'>Select publication</option>
+                  { 
+                    (facet ?? []).map( (p: any) => {
+                      return <option value={p} >{p}</option>
+                    }) 
+                  }
+                  {
+                    ( selectedFacet ? <option value='clear'>Clear</option> : '' )
+                  }
+                </select>
+              </div>
+              
+            </div>
+
+          </div>
           <table className="table is-bordered is-striped is-hoverable is-fullwidth is-narrow">
             <thead>
               <tr>
-                <th scope='col'>id</th>
-                <th scope='col'>package</th>
+                <th scope='col'><a href="#" onClick={ (e) => handleSortClick('id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'id' } order={sortOrder} >id</SortedHeaderLabel></a></th>
+                <th scope='col'><a href="#" onClick={ (e) => handleSortClick('package',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'package' } order={sortOrder} >package</SortedHeaderLabel></a></th>
                 <th scope='col'>raw_link</th>
-                <th scope='col'>title</th>
-                <th scope='col'>error</th>
+                <th scope='col'><a href="#" onClick={ (e) => handleSortClick('title',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'title' } order={sortOrder} >title</SortedHeaderLabel></a></th>
+                <th scope='col'><a href="#" onClick={ (e) => handleSortClick('error',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'error' } order={sortOrder} >error</SortedHeaderLabel></a></th>
                 <th scope='col'>view</th>
               </tr>
             </thead>
@@ -443,8 +580,8 @@ function PublicationsView(props: any) {
                           <td>{r.id_urn}</td>
                           <td>{r.spine_length}</td>
                           <td><a href={r.osci_url} target="_blank">View OSCI</a></td>
-                          <td><a href={r.url} target="_blank">View as Raw HTML</a></td>
-                          <td><a href="#" target="_blank" onClick={ (e) => handleView(r.toc_url,e) } >View</a></td>
+                          <td><a href={r.url} target="_blank">View XML</a></td>
+                          <td><a href="#" target="_blank" onClick={ (e) => handleView(r.toc_url,e) } >View TOC</a></td>
                         </tr>
 
                     })
@@ -609,7 +746,6 @@ function App() {
             <li className='is-active'><a href="#" aria-current='page' onClick={ (e) => e.preventDefault() } >{ selectedTextLabel ?? selectedTocLabel }</a></li>
           </ul>
         </nav>
-        {/* TODO: These should twiddle display on selection so we DOM manip cost once */}
         <PublicationsView className={ !selectedTextURL && !selectedTocURL && selectedTab === 'publications' ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={pubCount} dbId={dbId} setSelected={selectTOC} />
         <TextsView className={ !selectedTextURL && !selectedTocURL && selectedTab === 'texts' ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={textCount} dbId={dbId} setSelected={selectText} /> {  }
         <FiguresView className={ !selectedTextURL && !selectedTocURL && selectedTab === 'figures' ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={figureCount} dbId={dbId} /> 
