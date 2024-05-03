@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import './App.css'
+import './App.scss'
 
 import dbFile from './data/migration.sqlite3?url'
 
@@ -388,7 +388,7 @@ function FiguresView(props: any) {
                   return <tr>
                           <td>{r.id}</td>
                           <td>{r.package}</td>
-                          <td><a href={r.url} target="_blank">View as Raw HTML</a></td>
+                          <td><a href={r.url} target="_blank">View Raw HTML/XML</a></td>
                           <td>{r.title}</td>
                         </tr>
 
@@ -540,11 +540,14 @@ function TextsView(props: any) {
               </tr>
             </thead>
             <tfoot>
+              <tr>
                 <th>id</th>
                 <th>package</th>
                 <th>raw_link</th>
                 <th>title</th>
                 <th>error</th>
+                <th scope='col'>view</th>
+              </tr>
             </tfoot>
             <tbody>
               { 
@@ -552,10 +555,10 @@ function TextsView(props: any) {
                   return <tr>
                           <td>{r.id}</td>
                           <td>{r.package}</td>
-                          <td><a href={r.url} target="_blank">View as Raw HTML</a></td>
-                          <td>{r.title}</td>
-                          <td >{r.error}</td>
-                          <td><a href="#" target="_blank" onClick={ (e) => handleView(r.url,e) } >View</a></td>
+                          <td className='link-col'><a href={r.url} target="_blank">View HTML/XML</a></td>
+                          <td className='text-col'>{r.title}</td>
+                          <td className='text-col'>{r.error}</td>
+                          <td className='link-col'><a href="#" target="_blank" onClick={ (e) => handleView(r.url,e) } >View</a></td>
                         </tr>
 
                     })
