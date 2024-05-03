@@ -1,3 +1,13 @@
+/*
+  parse-osci.js
+
+  This alignment script takes in HTML from STDIN and parses it into OSCI content types.
+  The input is: 
+    - TODO: HTML Santitized (`dompurify`) -- sanitize errors are emitted on _meta._body_sanitize
+    - Parsed into a DOM tree (`jsdom`)
+
+*/
+
 const { JSDOM } = require('jsdom');
 
 // TODO: Wrap everything in try/catch so we can leave a dirty exit code on fail
@@ -48,7 +58,10 @@ const parseTextSections = (doc) => {
 
   sects.forEach( (s) => {
 
-    if (s.id === 'footnotes' || s.id === 'figures') { return }
+    // TODO: Just put these in the same place
+    if (s.id === 'footnotes' || s.id === 'figures') { 
+      return 
+    }
 
     const id = s.id
     const text = s.textContent
@@ -64,9 +77,9 @@ const parseTextSections = (doc) => {
   return result
 }
 
-const parseFigureSection = (doc) => {
+const parseFiguresSection = (doc) => {
 
-  const sect = doc.querySelector('section#figures')
+  const sect = doc.getElementById('figures')
   let result = []
 
   if (sect) {
@@ -83,13 +96,15 @@ const parseFigureSection = (doc) => {
       const order = fig.dataset.order // FIXME: Number()
       const count = fig.dataset.count // FIXME: NUmber()
 
-      // FIXME: caption_html
-      // FIXME: thumbnail
-      // FIXME: img alt text
-      // FIXME: figure layer target -- this is the `object` tag
-      // FIXME: fallback content?
+      const thumbnail = fig.querySelector('img.thumbnail').src
+      const figure_layer_url = fig.querySelector('object').getAttribute('data')
+      const fallback_url = fig.querySelector('object > .fallback-content > img').src
+      const caption_html = fig.querySelector('figcaption > div').innerHTML
+      const caption_text = fig.querySelector('figcaption > div').innerText
 
-      result.push({id,title,position,columns,figure_type,aspect,options,order,count})
+      // TODO: img alt text -- see https://publications.artic.edu/whistlerart/api/epub/paintingsanddrawings/51/content.xhtml?revision=1607615557#fig-51-27 ? I thought I saw this somewhere but I've only seen empty alts in samples
+
+      result.push({id,title,thumbnail, figure_layer_url, fallback_url, caption_html, caption_text, position,columns,figure_type,aspect,options,order,count})
 
     })
   }
@@ -108,12 +123,43 @@ const parseTocSections = (doc) => {
   // We only want immediate descendant `li` tags so just walk `children`
   for ( const hdg of Array.from(headingsList.children) ) {
 
-    if (hdg.tagName !== 'LI') { return }
+    if (hdg.tagName !== 'LI') { 
+      return 
+    }
+
     const anchor = hdg.querySelector('a')
 
-    if (!anchor) { return }
+    if (!anchor) { 
+      return 
+    }
 
-    const title = anchor.textContent // FIXME: This probably fails do the CDATA wrapping
+    // const paraFrag = /(^\[CDATA\[<p)/g
+    // const tailFrag = /(\]\]>$)/g
+    // Now we've got the TOC anchors, but things get a little wonky because they're all CDATA tags embeded in comments
+
+    // TODO: Sanitize this embedded HTML
+    // TODO: Create text-only representation of title (eg, html string -> dom node -> text content)
+    const commentFrag = /(\[CDATA\[)(.+)/g
+
+    let title = ''
+    anchor.childNodes.forEach( n => {
+
+      if (n.nodeType === doc.COMMENT_NODE && !commentFrag.test(n.textContent) ) { 
+        return
+      }
+
+      if (n.nodeType === doc.COMMENT_NODE ) { 
+        // TODO: Handle embedded content nodes ala `Collectors` subheds
+        return
+      }
+
+      if ( n.outerHTML ) {
+        title += n.outerHTML      
+      } else {
+        title += n.textContent
+      }
+    })
+
     const url = anchor.href
     const id = anchor.dataset.section_id
     const thumbnail = anchor.dataset.thumbnail 
@@ -129,16 +175,18 @@ const parseTocSections = (doc) => {
 
 (() => {
 
-  process.stdin.once("readable", () => {
+  let buf;
 
-    // Basically just the node docs reader (https://nodejs.org/api/stream.html#event-readable) so we're OK re: buffering large STDINs
-    let data;
-    let buf;
+  // Basically just the node docs reader (https://nodejs.org/api/stream.html)
+  // Reads data into a buffer until "end" event, then DOM parses and uses results
+  process.stdin.on("data", (data) => {
 
-    // p. sure this read() is fully buffered but node docs show while..
-    while ((data = process.stdin.read()) !== null) {
-      buf += data.toString()
+    if (data !== null) {
+      buf += data.toString()      
     }
+
+  }).on("end", () => {
+
     const dom = new JSDOM(buf)
     const type = materializeType(dom)
     const result = { "_type": type }
@@ -161,7 +209,7 @@ const parseTocSections = (doc) => {
       const textSections = parseTextSections(dom.window.document)
       result.sections = textSections
 
-      const figs = parseFigureSection(dom.window.document)
+      const figs = parseFiguresSection(dom.window.document)
       result.figures = figs
 
       break
