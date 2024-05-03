@@ -10,9 +10,6 @@
 
 const { JSDOM } = require('jsdom');
 
-// TODO: Wrap everything in try/catch so we can leave a dirty exit code on fail
-// TODO: Emit to stderr on error
-
 const materializeType = (dom) => {
   switch ( dom.window.document.title.trim().toLowerCase() ) {
   case 'figure':
@@ -96,11 +93,19 @@ const parseFiguresSection = (doc) => {
       const order = fig.dataset.order // FIXME: Number()
       const count = fig.dataset.count // FIXME: NUmber()
 
+      // TODO: `figure_type` == html (or whatever it is) should skip some of this
+
       const thumbnail = fig.querySelector('img.thumbnail').src
-      const figure_layer_url = fig.querySelector('object').getAttribute('data')
-      const fallback_url = fig.querySelector('object > .fallback-content > img').src
-      const caption_html = fig.querySelector('figcaption > div').innerHTML
-      const caption_text = fig.querySelector('figcaption > div').innerText
+
+      const layerObject = fig.querySelector('object')
+      const figure_layer_url = layerObject?.getAttribute('data')
+
+      const fallback = fig.querySelector('object > .fallback-content > img')
+      const fallback_url = fallback?.src
+
+      const caption = fig.querySelector('figcaption > div')
+      const caption_html = caption?.innerHTML
+      const caption_text = caption?.innerText
 
       // TODO: img alt text -- see https://publications.artic.edu/whistlerart/api/epub/paintingsanddrawings/51/content.xhtml?revision=1607615557#fig-51-27 ? I thought I saw this somewhere but I've only seen empty alts in samples
 
@@ -194,6 +199,8 @@ const parseTocSections = (doc) => {
     if (dom.window.document.title) {
       result._title = dom.window.document.title.trim()
     }
+
+    // TODO: Wrap everything in try/catch and leave a dirty exit code + emit on stderr on fail
 
     switch (type) {
     case 'toc':
