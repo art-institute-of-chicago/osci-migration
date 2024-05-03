@@ -3,6 +3,8 @@ import './App.css'
 
 import dbFile from './data/migration.sqlite3?url'
 
+const IMAGE_PRIORITY_THRESH = 3
+
 function LoadingView(props: any) {
   return <progress className={`progress is-success ${ props.ready ? 'is-hidden' : '' }`} value={undefined} max="100">&nbsp;</progress>
 }
@@ -64,7 +66,7 @@ function SelectedTocView(props: any) {
 
   const { data } = props
 
-  const tocSection = (sect: any) => {
+  const tocSection = (sect: any, i: number) => {
 
     const { title, url, thumbnail, subHeadings, subSections } = sect
 
@@ -80,7 +82,7 @@ function SelectedTocView(props: any) {
               <figure className={ `media-left ${thumbnail ? '' : 'is-hidden'}` }>
                 <p className="image is-96x96">
                   <a href='#' onClick={ (e) => handleSelection(sect.url,e) }>
-                    <img src={thumbnail} />
+                    <img fetchPriority={ i <= IMAGE_PRIORITY_THRESH ? 'high' : undefined } loading={ i > IMAGE_PRIORITY_THRESH ? 'lazy' : undefined } src={thumbnail} alt="" />
                   </a>
                 </p>
               </figure>
@@ -100,7 +102,7 @@ function SelectedTocView(props: any) {
                     <small><a href='#' onClick={ (e) => handleSelection(url,e) }>View</a>&nbsp;|&nbsp;<a href={url} target="_blank">View raw</a></small>
                   </p>
                 </div>
-                {subsects.map( (s: any) => tocSection(s) )}                
+                {subsects.map( (s: any, j: number) => tocSection(s,i+j) )}                
               </div>
           </article>
 
@@ -110,7 +112,7 @@ function SelectedTocView(props: any) {
                 <h2 className='title'>Table of Contents for {data.package}</h2>
                 <div className='subtitle'><a href={data.url} target='_blank'>View raw</a></div>
                 {
-                  'sections' in data ? data.sections.map( (sect: any) => tocSection(sect) ) : ''
+                  'sections' in data ? data.sections.map( (sect: any, i: number) => tocSection(sect,i) ) : ''
                 }
               </div>
 
@@ -160,9 +162,9 @@ function SelectedTextView(props: any) {
               </figure>
               <div className='media-right'>
                 <div className='content'>
-                  <strong>Caption</strong>
+                  <strong >Caption</strong>
                   <br/>
-                  <span dangerouslySetInnerHTML={{__html: caption_html}}></span>
+                  <span dangerouslySetInnerHTML={{__html: caption_html }}></span>
                   <p><a href={fallback_url} target='_blank'>See fallback image</a></p>
                   <p><strong>figure_type</strong>:&nbsp;{figure_type}</p>
                   <p><strong>order</strong>:&nbsp;{order}</p>
@@ -232,7 +234,7 @@ function SelectedEntityView(props: any) {
       }
   }
 
-  return <div className={`container selected-record ${props.className}`}>
+  return <div className={`container box selected-record ${props.className}`}>
             {
               entityType === 'toc' ? <SelectedTocView data={data} setSelected={props.setSelected} /> : ''
             }
