@@ -150,7 +150,7 @@ function SelectedTextView(props: any) {
   })
 
   const figures = ( figs ?? [] ).map( (fig: any) => {
-    const { id, thumbnail, figure_type, order, position, title: _, aspect, options, columns, caption_html } = fig
+    const { id, thumbnail, fallback_url, figure_type, order, position, title: _, aspect, options, columns, caption_html } = fig
     return <article className='media' id={id}>
               <div className='media-left'>
               </div>
@@ -163,6 +163,7 @@ function SelectedTextView(props: any) {
                   <strong>Caption</strong>
                   <br/>
                   <span dangerouslySetInnerHTML={{__html: caption_html}}></span>
+                  <p><a href={fallback_url} target='_blank'>See fallback image</a></p>
                   <p><strong>figure_type</strong>:&nbsp;{figure_type}</p>
                   <p><strong>order</strong>:&nbsp;{order}</p>
                   <p><strong>position</strong>:&nbsp;{position}</p>
