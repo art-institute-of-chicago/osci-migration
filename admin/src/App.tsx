@@ -125,8 +125,13 @@ function SelectedTextView(props: any) {
     const { id, html } = sect
 
     return <section className={`section ${id}-section`}>
-      <h3 className='title'>{id}</h3>
-      <div className="ml-3 content" dangerouslySetInnerHTML={{ __html: html }}></div>
+      <article className='media'>
+        <div className='media-content'>
+          <h4 className='title'>Section:&nbsp;{id}</h4>
+          <div className='content' dangerouslySetInnerHTML={{ __html: html }}>            
+          </div>
+        </div>
+      </article>
     </section>
   })
 
@@ -139,30 +144,49 @@ function SelectedTextView(props: any) {
               <div className='media-content'>
                 <div className='content' dangerouslySetInnerHTML={{ __html: fn.noteHtml}}>
                 </div>
+                {/* FIXME: Return to top link */}
               </div>
             </article>
   })
 
   const figures = ( figs ?? [] ).map( (fig: any) => {
-    return <article className='media'>
-              <div className='media-content'>
+    const { id, thumbnail, figure_type, order, position, title: _, aspect, options, columns, caption_html } = fig
+    return <article className='media' id={id}>
+              <div className='media-left'>
+              </div>
+              <figure className={ `media-left image is-96x96` }>
+                <img className={`${thumbnail ? '' : 'is-hidden'}`} src={thumbnail} alt="" />
+                <figcaption><span>{id}</span></figcaption>
+              </figure>
+              <div className='media-right'>
                 <div className='content'>
-                  {JSON.stringify(fig)}
+                  <strong>Caption</strong>
+                  <br/>
+                  <span dangerouslySetInnerHTML={{__html: caption_html}}></span>
+                  <p><strong>figure_type</strong>:&nbsp;{figure_type}</p>
+                  <p><strong>order</strong>:&nbsp;{order}</p>
+                  <p><strong>position</strong>:&nbsp;{position}</p>
+                  <p><strong>aspect</strong>:&nbsp;{aspect}</p>
+                  <p><strong>columns</strong>:&nbsp;{columns}</p>
+                  <p><strong>options</strong>:&nbsp;{options}</p>
+                  {/* FIXME: view figure link */}
+                  {/* FIXME: return to top link */}
                 </div>
               </div>
     </article>
   })
 
   return <div className='selected-text-view'>
-            <h2 className='title'>Text for {title} ({id})</h2>
-            <div className='subtitle'><a href={url} target="_blank">View raw HTML</a></div>
+            <h2 className='title'>{title}</h2>
+            <h3 className='subtitle'>{id}</h3>
+            <div><a href={url} target="_blank">View raw HTML</a></div>
             {sections}
-            <section className='section footnotes-section'>
-              <h3 className='title'>Footnotes</h3>
+            <section className={`section footnotes-section ${footnotes.length > 0 ? '' : 'is-hidden' }`}>
+              <h4 className='title'>Section:&nbsp;footnotes</h4>
                 {footnotes}
             </section>
-            <section className='section figures-section'>
-              <h3 className='title'>Figures</h3>
+            <section className={`section figures-section ${figures.length > 0 ? '' : 'is-hidden'}`}>
+              <h4 className='title'>Section:&nbsp;figures</h4>
                 {figures}
             </section>          
           </div>
@@ -184,7 +208,7 @@ function SelectedEntityView(props: any) {
 
   useEffect(() => {
     if (!ready) { return }
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `select id, type, package, data->>'$._url' as url, data->>'$.footnotes' as footnotes, data->>'$.sections' as sections, data->>'$.figures' as figures from documents where data->>'$._url'=?`, bind: [ props.selectedText ?? props.selectedToc ] }})     
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `select id, title, type, package, data->>'$._url' as url, data->>'$.footnotes' as footnotes, data->>'$.sections' as sections, data->>'$.figures' as figures from documents where data->>'$._url'=?`, bind: [ props.selectedText ?? props.selectedToc ] }})     
   },[ready,props.selectedText,props.selectedToc])
 
   const msgResponder = (event: any) => {
@@ -194,13 +218,13 @@ function SelectedEntityView(props: any) {
         if ( isResultTerminator(msg) ) { 
           return
         }
-        const { id, type, package: packageId, sections: sect, footnotes: fnotes, url, figures: figs } = msg.row
+        const { id, title, type, package: packageId, sections: sect, footnotes: fnotes, url, figures: figs } = msg.row
         const sections = JSON.parse(sect)
         const footnotes = JSON.parse(fnotes)
         const figures = JSON.parse(figs)
 
         setEntityType(type)
-        setData({id, package: packageId, sections, footnotes, figures, url })
+        setData({id, title, package: packageId, sections, footnotes, figures, url })
         break
       default:
         return
@@ -554,7 +578,7 @@ function PublicationsView(props: any) {
     if ( props.dbId === null ) { return }
     props.sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
 
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select id, data->>'$._href' as url, title as name, data->>'$._id_urn' as id_urn, json_array_length(data,'$._spine.itemref') as spine_length, data->>'$._toc_url' as toc_url, data->>'$._reader_url' as osci_url from documents where type='osci-package'` }})
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select id, data->>'$._href' as url, title as name, data->>'$._id_urn' as id_urn, json_array_length(data,'$._spine.itemref') as spine_length, data->>'$._toc_url' as toc_url, data->>'$._reader_url' as osci_url from documents where type='osci-package' order by id` }})
 
   },[props.sqlWorker,props.dbId])
 
