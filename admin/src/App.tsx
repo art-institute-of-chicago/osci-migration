@@ -10,7 +10,7 @@ declare global {
   var _db: any
 }
 
-// A simple setup for indexedDB
+// Setup to use indexedDB to store fetched sqlite blobs
 const setupPersistence = () => {
 
   const openRequest = window.indexedDB.open('migration',2)
@@ -21,6 +21,7 @@ const setupPersistence = () => {
 
   openRequest.onsuccess = (event: any) => {
     globalThis._db = event.target.result
+
     window.postMessage({type: 'persistence-ready'})
     console.log("Success opening indexedDB for persistence")
   }
@@ -28,7 +29,6 @@ const setupPersistence = () => {
   openRequest.onupgradeneeded = (event: any) => {
 
     // Setup the DB instead
-    // globalThis._db = event.target.result
     globalThis._db = event.target.result
     globalThis._db.createObjectStore('migration-db',{ keyPath: 'filename' })
 
@@ -36,6 +36,8 @@ const setupPersistence = () => {
     globalThis._db.onerror = () => {
       console.error("Failed to create object store in indexedDB!")
     }
+
+    // Sends a signal that `_db` is ready -- consumers _must_ wait before accessing 
     window.postMessage({type: 'persistence-ready'})
 
   }
@@ -797,6 +799,7 @@ function App() {
     req.onsuccess = () => {
 
       if (req.result === null) {
+        console.log("Have indexedDB but no blob")
         // No existing blob found for this db
         setPersisted(false)
         return
@@ -811,12 +814,14 @@ function App() {
       }
 
       getReq.onerror = () => {
+        console.log('error getting')
         setPersisted(false)
       }
 
     }
 
     req.onerror = () => {
+      console.log('error requesting initially')
       setPersisted(false)
     }
 
