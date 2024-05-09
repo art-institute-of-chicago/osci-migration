@@ -696,7 +696,7 @@ function App() {
   const [persistenceReady,setPersistenceReady] = useState(false)
 
   const [persisted,setPersisted] = useState(null as any)
-  const [blobData,setBlobData] = useState(false as any) 
+  const [blobData,setBlobData] = useState(null as any) 
   const [dbOpen, setDbOpen] = useState(false)
   const [dbId, setDbId] = useState(null)
 
@@ -808,7 +808,7 @@ function App() {
       // This key exists so we can get its contents and set the blob
       const getReq = objects.get(dbFile)
       getReq.onsuccess = () => {
-        console.log("got em")
+        console.log("got em",getReq.result.blob.byteLength)
         setBlobData(getReq.result.blob) 
         setPersisted(true)
       }
