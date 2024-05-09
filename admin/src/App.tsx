@@ -828,15 +828,19 @@ function App() {
   },[persistenceReady])
 
   useEffect(() => {
-    if (blobData===null) { return }
+    if (blobData===null) { 
+      console.log('fired for blobData but empty') 
+      return 
+    }
+    console.log('fired for blob data with length',blobData.byteLength)
     sqlWorker.postMessage({type: 'open', args: {filename: "/test.sqlite3", byteArray: blobData }})
   },[blobData])
 
   useEffect(() => {
     if (!workerReady) { return }
-    if (persisted || persisted === null) { return }
+    if (persisted!==false) { return }
 
-    console.log('worker ready & checked if we already have the data')
+    console.log('worker ready & checked we dont have the data')
 
     fetch(dbFile)
       .then( res => res.arrayBuffer() )
