@@ -5,6 +5,43 @@ import dbFile from './data/migration.sqlite3?url'
 
 const IMAGE_PRIORITY_THRESH = 3
 
+// NB: This _db is really just so we can persist the blob and save some bandwidth
+declare global {
+  var _db: any
+}
+
+// A simple setup for indexedDB
+const setupPersistence = () => {
+
+  const openRequest = window.indexedDB.open('migration',2)
+
+  openRequest.onerror = () => {
+    console.error(`Error opening indexedDB -- do we have permissions and are we in a secure context?`)
+  }
+
+  openRequest.onsuccess = (event: any) => {
+    globalThis._db = event.target.result
+    window.postMessage({type: 'persistence-ready'})
+    console.log("Success opening indexedDB for persistence")
+  }
+
+  openRequest.onupgradeneeded = (event: any) => {
+
+    // Setup the DB instead
+    // globalThis._db = event.target.result
+    globalThis._db = event.target.result
+    globalThis._db.createObjectStore('migration-db',{ keyPath: 'filename' })
+
+
+    globalThis._db.onerror = () => {
+      console.error("Failed to create object store in indexedDB!")
+    }
+    window.postMessage({type: 'persistence-ready'})
+
+  }
+
+}
+
 function LoadingView(props: any) {
   return <progress className={`progress is-success ${ props.ready ? 'is-hidden' : '' }`} value={undefined} max="100">&nbsp;</progress>
 }
@@ -75,7 +112,7 @@ function SelectedTocView(props: any) {
 
     const handleSelection = (url: string,event: any) => {
       event.preventDefault()
-      props.setSelected(url)
+      props.setSelected({ url, label: title, id: '', type: 'text' })
     }
 
     return <article className='media'>
@@ -472,9 +509,9 @@ function TextsView(props: any) {
       }
   }
 
-  const handleView = (url: string,event: any) => {
+  const handleView = (row: any,event: any) => {
     event.preventDefault()
-    props.setSelected(url)
+    props.setSelected({...row, label: row.title, type: 'text'})
   }
 
   const handleSortClick = (col: string,event: any) => {
@@ -558,7 +595,7 @@ function TextsView(props: any) {
                           <td className='link-col'><a href={r.url} target="_blank">View HTML/XML</a></td>
                           <td className='text-col'>{r.title}</td>
                           <td className='text-col'>{r.error}</td>
-                          <td className='link-col'><a href="#" target="_blank" onClick={ (e) => handleView(r.url,e) } >View</a></td>
+                          <td className='link-col'><a href="#" target="_blank" onClick={ (e) => handleView(r,e) } >View</a></td>
                         </tr>
 
                     })
@@ -600,9 +637,10 @@ function PublicationsView(props: any) {
       }
   }
 
-  const handleView = (url: string,event: any) => {
+  const handleView = (row: any,event: any) => {
     event.preventDefault()
-    props.setSelected(url)
+    // NB: Selecting TOCs not Publication objects
+    props.setSelected({ ...row, label: row.name, url: row.toc_url })
   }
 
   return <div className={`records records-publications ${props.className}`}>
@@ -638,7 +676,7 @@ function PublicationsView(props: any) {
                           <td>{r.spine_length}</td>
                           <td><a href={r.osci_url} target="_blank">View OSCI</a></td>
                           <td><a href={r.url} target="_blank">View XML</a></td>
-                          <td><a href="#" target="_blank" onClick={ (e) => handleView(r.toc_url,e) } >View TOC</a></td>
+                          <td><a href="#" target="_blank" onClick={ (e) => handleView(r,e) } >View TOC</a></td>
                         </tr>
 
                     })
@@ -653,17 +691,20 @@ function PublicationsView(props: any) {
 function App() {
 
   const [workerReady,setWorkerReady] = useState(false)
+  const [persistenceReady,setPersistenceReady] = useState(false)
+
+  const [persisted,setPersisted] = useState(null as any)
+  const [blobData,setBlobData] = useState(false as any) 
   const [dbOpen, setDbOpen] = useState(false)
   const [dbId, setDbId] = useState(null)
 
   const [selectedTab,setSelectedTab] = useState('publications')
-  const [selectedTocURL,setSelectedTocURL] = useState(null)
-  const [selectedTextURL,setSelectedTextURL] = useState(null)
-  const [selectedTocLabel,setSelectedTocLabel] = useState(null)
-  const [selectedTextLabel,setSelectedTextLabel] = useState(null)
   const [pubCount, setPubCount] = useState(null)
   const [textCount, setTextCount] = useState(null)
   const [figureCount, setFigureCount] = useState(null)
+  const [navStack,setNavStack] = useState([] as any)
+
+  const [appError,_] = useState(null as any)
 
   const sqlWorker = useMemo(
                       () => new Worker(new URL( './worker.js',import.meta.url)), 
@@ -680,7 +721,7 @@ function App() {
     case 'figures':
       return 'Figures' 
     default:
-      return ''     
+      return ''
     }
 
   }
@@ -712,36 +753,103 @@ function App() {
         if ( isResultTerminator(msg) ) { return }
         setFigureCount(msg.row)
         break
-      case 'selected-toc-label':
-        if ( isResultTerminator(msg) ) { return }
-        setSelectedTocLabel(msg.row)
-        break
-      case 'selected-text-label':
-        if ( isResultTerminator(msg) ) { return }
-        setSelectedTextLabel(msg.row)
-        break
       default:
         return
       }
   }
 
-  sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
+  // INIT: Try to setup persistence, fetch the db if there's no blob, open the db with the bytes 
 
-  // INIT: Fetch the db, open the db with the bytes 
+  // TODO: Pop a modal when appError !== null
+
+  useEffect(() => {
+
+    // Listeners for the indexDB opening ceremony + sqlite worker
+    window.addEventListener("message", (e: any) => e.data.type === 'persistence-ready' ? setPersistenceReady(true) : '')
+    sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
+
+    // History pop handler
+    window.addEventListener('popstate', (event: any) => { 
+
+      // Don't do anything for footnote and figure anchors (for now)
+      if ( document.location.hash.startsWith('#fn-') || document.location.hash.startsWith('#fig-') ) { 
+        console.log(document.location.hash)
+        return 
+      }
+
+      // console.log(event.location.hash)
+      setNavStack(event.state?.navStack ?? [])
+
+    })
+
+    setupPersistence()
+
+
+  },[])
+
+  useEffect(() => {
+
+    if (!persistenceReady) { return }
+
+    const objects = globalThis._db.transaction('migration-db').objectStore('migration-db')
+    const req = objects.openCursor(dbFile)
+    
+    req.onsuccess = () => {
+
+      if (req.result === null) {
+        // No existing blob found for this db
+        setPersisted(false)
+        return
+      }
+
+      // This key exists so we can get its contents and set the blob
+      const getReq = objects.get(dbFile)
+      getReq.onsuccess = () => {
+        console.log("got em")
+        setBlobData(getReq.result.blob) 
+        setPersisted(true)
+      }
+
+      getReq.onerror = () => {
+        setPersisted(false)
+      }
+
+    }
+
+    req.onerror = () => {
+      setPersisted(false)
+    }
+
+  },[persistenceReady])
+
+  useEffect(() => {
+    if (blobData===null) { return }
+    sqlWorker.postMessage({type: 'open', args: {filename: "/test.sqlite3", byteArray: blobData }})
+  },[blobData])
+
   useEffect(() => {
     if (!workerReady) { return }
+    if (persisted || persisted === null) { return }
 
-    console.log('worker ready')
+    console.log('worker ready & checked if we already have the data')
 
     fetch(dbFile)
       .then( res => res.arrayBuffer() )
       .then( (arrayBuffer) => {
+        setBlobData(arrayBuffer)
 
-        sqlWorker.postMessage({type: 'open', args: {filename: "/test.sqlite3", byteArray: arrayBuffer }})
+        const objects = globalThis._db.transaction(['migration-db'],'readwrite').objectStore('migration-db')
+
+        // TODO: Delete the other db objects
+        const req = objects.add({filename: dbFile, blob: arrayBuffer})
+    
+        req.oncomplete = () => {
+          console.log('Stored blob!')
+        }
 
       }) 
 
-  },[workerReady])
+  },[workerReady,persisted])
 
   // Exec our first query now it's open 
   useEffect(() => {
@@ -755,39 +863,82 @@ function App() {
 
   },[dbOpen,dbId])
 
-  const handleRootClick = (event: any) => {
+  const handleBreadcrumbClick = (idx: number,event: any) => {
     event.preventDefault()
-    setSelectedTocURL(null)
-    setSelectedTextURL(null)
-  }
 
-  const handleBreadcrumbClick = (event: any) => {
-    event.preventDefault()
-    setSelectedTextURL(null)
-    setSelectedTextLabel(null)
+    const end = idx > 0 ? idx + 1 : 0
+    setNavStack( (stack: any) => {
+      return [ ...stack.slice(0,end) ]
+    })
+
   }
 
   const handleTabClick = (tab: string) => {
     setSelectedTab(tab)
-    setSelectedTocURL(null)
-    setSelectedTextURL(null)
+    setNavStack([])
   }
 
-  const selectTOC = (url: any) => {
-    setSelectedTocURL(url)
-    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'selected-toc-label', rowMode: '$title', sql: `select title from documents where type='osci-package' and data->>'$._toc_url'=?`, bind: [ url ]  }})
+  const navToHash = (stack: any) => {
+
+    // NB: Slicing here so we miss the tab root nav item in labelling
+    const titleString = stack.length > 0 ? stack.slice(-1)[0].label : ''
+    const hashString = stack.map( (ns: any) => {
+      switch (ns.type) {
+      case 'tab':
+        return `tab:${ns.id}`
+      default:
+        return `view:${ns.id}`      
+      }
+    }).join('|')
+
+    document.title = `OSCI Publications - ${titleString}`
+    window.history.pushState({ navStack: stack },`OSCI Publications - ${titleString}`,`#${hashString}`)
+
   }
 
-  const selectText = (url: any) => {
-    setSelectedTextURL(url)
-    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'selected-text-label', rowMode: '$title', sql: `select title from documents where type='text' and data->>'$._url'=?`, bind: [ url ]  }})
+  const selectTOC = (tocItem: any) => {
+    // FIXME: If there's not a tab on the stack, push `selectedTab` and this url (take a label too)
+    const { id, url, label } = tocItem
+    const item = { id, url, label, type: 'toc' }
+
+    if ( navStack.some( (s: any) => s.type === 'tab' ) ) {
+      setNavStack([ ...navStack, item ])
+      navToHash([ ...navStack, item ])
+      return
+    }
+
+    setNavStack([ {'id': `${selectedTab}`, 'url': '', 'label': tabLabels(selectedTab), 'type': 'tab' }, item ])
+    navToHash([ {'id': `${selectedTab}`, 'url': '', 'label': tabLabels(selectedTab), 'type': 'tab' }, item ])
+
+    // sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'selected-toc-label', rowMode: '$title', sql: `select title from documents where type='osci-package' and data->>'$._toc_url'=?`, bind: [ url ]  }})
   }
 
-  const showBreadcrumbs = !selectedTocURL && !selectedTextURL
-  const showPublications = !selectedTextURL && !selectedTocURL && selectedTab === 'publications' && dbOpen
-  const showTexts = !selectedTextURL && !selectedTocURL && selectedTab === 'texts' && dbOpen
-  const showFigures = !selectedTextURL && !selectedTocURL && selectedTab === 'figures' && dbOpen
-  const showSelectedEntity = selectedTextURL !== null || selectedTocURL !== null && dbOpen
+  const selectText = (textItem: any) => {
+
+    const { id, url, label } = textItem
+    const item = { id, url, label, type: 'text' }
+
+    if ( navStack.some( (s: any) => s.type === 'tab' ) ) {
+      setNavStack([ ...navStack, item ])
+      navToHash([...navStack, item])
+      return
+    }
+
+    setNavStack([ {'id': `tab/${selectedTab}`, 'url': '', 'label': tabLabels(selectedTab), 'type': 'tab' }, item ])
+    navToHash([ {'id': `tab/${selectedTab}`, 'url': '', 'label': tabLabels(selectedTab), 'type': 'tab' }, item ])
+
+    // sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'selected-text-label', rowMode: '$title', sql: `select title from documents where type='text' and data->>'$._url'=?`, bind: [ url ]  }})
+  }
+
+  const showBreadcrumbs = navStack.length > 0
+  const showPublications = navStack.length === 0 && dbOpen && selectedTab === 'publications' 
+  const showTexts = navStack.length === 0 && dbOpen && selectedTab === 'texts'
+  const showFigures = navStack.length === 0 && dbOpen && selectedTab === 'figures'
+  const showSelectedEntity = navStack.length > 0 && dbOpen
+
+  const lastNavItem = navStack.length > 0 ? navStack.slice(-1)[0] : null  
+  const selectedTextURL = lastNavItem && lastNavItem.type === 'text' ? lastNavItem.url : null
+  const selectedTocURL = lastNavItem && lastNavItem.type === 'toc' ? lastNavItem.url : null
 
   return (
       <div className="container">
@@ -801,13 +952,21 @@ function App() {
             <li className={ selectedTab == 'figures' ? 'is-active' : ''}><a onClick={ () => handleTabClick('figures') }>{`${ tabLabels('figures') } (${figureCount ?? ''})`}</a></li>
           </ul>
         </div>
-        <nav className={ `breadcrumb ${ showBreadcrumbs ? 'is-hidden' : '' }` } aria-label='breadcrumbs'>
+        <nav className={ `breadcrumb ${ showBreadcrumbs ? '' : 'is-hidden' }` } aria-label='breadcrumbs'>
           <ul>
-            <li><a href="#" onClick={ (e) => handleRootClick(e) } >{ `${ tabLabels(selectedTab) }` }</a></li>
-            <li className={ selectedTocURL && selectedTextURL ? '' : 'is-hidden' } ><a href="#" onClick={ (e) => handleBreadcrumbClick(e) } >{ `${ selectedTocLabel }` }</a></li>
-            <li className='is-active'><a href="#" aria-current='page' onClick={ (e) => e.preventDefault() } >{ selectedTextLabel ?? selectedTocLabel }</a></li>
+            {
+              navStack.map( (navItem: any,idx: number) => {
+                const activeItem = idx === navStack.length - 1
+                return <li className={`${ activeItem ? 'is-active' : '' }`}>
+                          <a href="#" aria-current={ activeItem ? 'page' : undefined } onClick={ (e) => handleBreadcrumbClick(idx,e) } >
+                            { `${ navItem.label }` }
+                          </a>
+                        </li>
+              })
+            }
           </ul>
         </nav>
+        <span>{appError ? appError : ''}</span>
         <LoadingView ready={dbOpen} />
         <PublicationsView className={ showPublications ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={pubCount} dbId={dbId} setSelected={selectTOC} />
         <TextsView className={ showTexts ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={textCount} setCount={setTextCount} dbId={dbId} setSelected={selectText} /> {  }
