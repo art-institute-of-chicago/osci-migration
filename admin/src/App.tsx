@@ -107,14 +107,14 @@ function SelectedTocView(props: any) {
 
   const tocSection = (sect: any, i: number) => {
 
-    const { title, url, thumbnail, subHeadings, subSections } = sect
+    const { id, title, url, thumbnail, subHeadings, subSections } = sect
 
     const subheads = subHeadings ?? []
     const subsects = subSections ?? []
 
     const handleSelection = (url: string,event: any) => {
       event.preventDefault()
-      props.setSelected({ url, label: title, id: '', type: 'text' })
+      props.setSelected({ url, label: title, id: `${data.package}/${id}`, type: 'text' })
     }
 
     return <article className='media'>
@@ -623,7 +623,7 @@ function PublicationsView(props: any) {
     if ( props.dbId === null ) { return }
     props.sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
 
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select id, data->>'$._href' as url, title as name, data->>'$._id_urn' as id_urn, json_array_length(data,'$._spine.itemref') as spine_length, data->>'$._toc_url' as toc_url, data->>'$._reader_url' as osci_url from documents where type='osci-package' order by id` }})
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select documents.id, documents.data->>'$._href' as url, documents.title as name, documents.data->>'$._id_urn' as id_urn, json_array_length(documents.data,'$._spine.itemref') as spine_length, documents.data->>'$._toc_url' as toc_url, documents.data->>'$._reader_url' as osci_url, d.id as toc_id from documents left join documents as d on (documents.data->>'$._toc_url')=d.data->>'$._url' where documents.type='osci-package' order by documents.id` }})
 
   },[props.sqlWorker,props.dbId])
 
@@ -642,7 +642,7 @@ function PublicationsView(props: any) {
   const handleView = (row: any,event: any) => {
     event.preventDefault()
     // NB: Selecting TOCs not Publication objects
-    props.setSelected({ ...row, label: row.name, url: row.toc_url })
+    props.setSelected({ ...row, id: row.toc_id, label: row.name, url: row.toc_url })
   }
 
   return <div className={`records records-publications ${props.className}`}>
@@ -690,7 +690,22 @@ function PublicationsView(props: any) {
         
 }
 
-function App() {
+const tabLabels = (tab: string) => {
+
+  switch (tab) {
+  case 'publications':
+    return 'Publications'
+  case 'texts':
+    return 'Texts'
+  case 'figures':
+    return 'Figures' 
+  default:
+    return ''
+  }
+
+}
+
+function App(props: any) {
 
   const [workerReady,setWorkerReady] = useState(false)
   const [persistenceReady,setPersistenceReady] = useState(false)
@@ -700,11 +715,11 @@ function App() {
   const [dbOpen, setDbOpen] = useState(false)
   const [dbId, setDbId] = useState(null)
 
-  const [selectedTab,setSelectedTab] = useState('publications')
+  // const [selectedTab,setSelectedTab] = useState('publications')
   const [pubCount, setPubCount] = useState(null)
   const [textCount, setTextCount] = useState(null)
   const [figureCount, setFigureCount] = useState(null)
-  const [navStack,setNavStack] = useState([] as any)
+  const [navStack,setNavStack] = useState([{ id: 'publications', type: 'tab', label: tabLabels('publications') }] as any)
 
   const [appError,_] = useState(null as any)
 
@@ -712,21 +727,6 @@ function App() {
                       () => new Worker(new URL( './worker.js',import.meta.url)), 
                             []
                       )
-
-  const tabLabels = (tab: string) => {
-
-    switch (tab) {
-    case 'publications':
-      return 'Publications'
-    case 'texts':
-      return 'Texts'
-    case 'figures':
-      return 'Figures' 
-    default:
-      return ''
-    }
-
-  }
 
   const msgResponder = (event: any) => {
     const msg = event.data
@@ -845,9 +845,10 @@ function App() {
       .then( (arrayBuffer) => {
         setBlobData(arrayBuffer)
 
+        // FIXME: T'xns can fail if, eg, there's a clearing transaction in progress, so check this with an onerror handler()
         const objects = globalThis._db.transaction(['migration-db'],'readwrite').objectStore('migration-db')
 
-        // TODO: Delete the other db objects
+        // TODO: Delete all the db objects if they exist
         const req = objects.add({filename: dbFile, blob: arrayBuffer})
     
         req.oncomplete = () => {
@@ -858,12 +859,14 @@ function App() {
 
   },[persisted])
 
-  // Exec our first query now it's open 
+  // Exec our first queries now it's open 
   useEffect(() => {
     if (!dbOpen || dbId===null ) { return }
 
     console.log(`db open with id ${dbId}`)
 
+    // TODO: If props.urlState !== {} load the items so they can be the navStack
+    console.log(props.urlState)
     sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'pubs-count', rowMode: '$count', sql: `select count() as count from documents where type='osci-package'` }})
     sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from documents where type='text' or type is null` }})
     sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from documents where type='figure'` }})
@@ -873,16 +876,16 @@ function App() {
   const handleBreadcrumbClick = (idx: number,event: any) => {
     event.preventDefault()
 
-    const end = idx > 0 ? idx + 1 : 0
-    setNavStack( (stack: any) => {
-      return [ ...stack.slice(0,end) ]
-    })
+    setNavStack([ ...navStack.slice(0,idx+1) ])
+    navToHash([ ...navStack.slice(0,idx+1) ])
 
   }
 
   const handleTabClick = (tab: string) => {
-    setSelectedTab(tab)
-    setNavStack([])
+
+    setNavStack([{'id': tab, 'url': '', 'label': tabLabels(tab), 'type': 'tab' }])
+    navToHash([{'id': tab, 'url': '', 'label': tabLabels(tab), 'type': 'tab' }])
+
   }
 
   const navToHash = (stack: any) => {
@@ -904,20 +907,13 @@ function App() {
   }
 
   const selectTOC = (tocItem: any) => {
-    // FIXME: If there's not a tab on the stack, push `selectedTab` and this url (take a label too)
+
     const { id, url, label } = tocItem
     const item = { id, url, label, type: 'toc' }
 
-    if ( navStack.some( (s: any) => s.type === 'tab' ) ) {
-      setNavStack([ ...navStack, item ])
-      navToHash([ ...navStack, item ])
-      return
-    }
+    setNavStack([ ...navStack, item ])
+    navToHash([ ...navStack, item ])
 
-    setNavStack([ {'id': `${selectedTab}`, 'url': '', 'label': tabLabels(selectedTab), 'type': 'tab' }, item ])
-    navToHash([ {'id': `${selectedTab}`, 'url': '', 'label': tabLabels(selectedTab), 'type': 'tab' }, item ])
-
-    // sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'selected-toc-label', rowMode: '$title', sql: `select title from documents where type='osci-package' and data->>'$._toc_url'=?`, bind: [ url ]  }})
   }
 
   const selectText = (textItem: any) => {
@@ -925,23 +921,17 @@ function App() {
     const { id, url, label } = textItem
     const item = { id, url, label, type: 'text' }
 
-    if ( navStack.some( (s: any) => s.type === 'tab' ) ) {
-      setNavStack([ ...navStack, item ])
-      navToHash([...navStack, item])
-      return
-    }
+    setNavStack([ ...navStack, item ])
+    navToHash([...navStack, item])
 
-    setNavStack([ {'id': `tab/${selectedTab}`, 'url': '', 'label': tabLabels(selectedTab), 'type': 'tab' }, item ])
-    navToHash([ {'id': `tab/${selectedTab}`, 'url': '', 'label': tabLabels(selectedTab), 'type': 'tab' }, item ])
-
-    // sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'selected-text-label', rowMode: '$title', sql: `select title from documents where type='text' and data->>'$._url'=?`, bind: [ url ]  }})
   }
 
-  const showBreadcrumbs = navStack.length > 0
-  const showPublications = navStack.length === 0 && dbOpen && selectedTab === 'publications' 
-  const showTexts = navStack.length === 0 && dbOpen && selectedTab === 'texts'
-  const showFigures = navStack.length === 0 && dbOpen && selectedTab === 'figures'
-  const showSelectedEntity = navStack.length > 0 && dbOpen
+  const selectedTab = navStack.find( (ns: any) => ns.type === 'tab' ).id
+  const showBreadcrumbs = navStack.length > 1
+  const showPublications = navStack.length === 1 && dbOpen && selectedTab === 'publications' 
+  const showTexts = navStack.length === 1 && dbOpen && selectedTab === 'texts'
+  const showFigures = navStack.length === 1 && dbOpen && selectedTab === 'figures'
+  const showSelectedEntity = navStack.length > 1 && dbOpen
 
   const lastNavItem = navStack.length > 0 ? navStack.slice(-1)[0] : null  
   const selectedTextURL = lastNavItem && lastNavItem.type === 'text' ? lastNavItem.url : null
