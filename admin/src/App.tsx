@@ -30,15 +30,17 @@ const setupPersistence = () => {
 
     // Setup the DB instead
     globalThis._db = event.target.result
-    globalThis._db.createObjectStore('migration-db',{ keyPath: 'filename' })
+    const txn = globalThis._db.createObjectStore('migration-db',{ keyPath: 'filename' })
 
 
-    globalThis._db.onerror = () => {
+    txn.onerror = () => {
       console.error("Failed to create object store in indexedDB!")
     }
 
-    // Sends a signal that `_db` is ready -- consumers _must_ wait before accessing 
-    window.postMessage({type: 'persistence-ready'})
+    txn.oncomplete = () => {
+      // Sends a signal that `_db` is ready -- consumers _must_ wait before accessing 
+      window.postMessage({type: 'persistence-ready'})      
+    }
 
   }
 
@@ -185,7 +187,7 @@ function SelectedTextView(props: any) {
               <div className='media-content'>
                 <div className='content' dangerouslySetInnerHTML={{ __html: fn.noteHtml}}>
                 </div>
-                {/* FIXME: Return to top link */}
+                {/* TODO: Return to top link */}
               </div>
             </article>
   })
@@ -211,8 +213,8 @@ function SelectedTextView(props: any) {
                   <p><strong>aspect</strong>:&nbsp;{aspect}</p>
                   <p><strong>columns</strong>:&nbsp;{columns}</p>
                   <p><strong>options</strong>:&nbsp;{options}</p>
-                  {/* FIXME: view figure link */}
-                  {/* FIXME: return to top link */}
+                  {/* TODO: view figure link */}
+                  {/* TODO: return to top link */}
                 </div>
               </div>
     </article>
@@ -641,6 +643,7 @@ function PublicationsView(props: any) {
 
   const handleView = (row: any,event: any) => {
     event.preventDefault()
+
     // NB: Selecting TOCs not Publication objects
     props.setSelected({ ...row, id: row.toc_id, label: row.name, url: row.toc_url })
   }
@@ -836,7 +839,7 @@ function App(props: any) {
   },[blobData,workerReady])
 
   useEffect(() => {
-    if (persisted!==false) { return }
+    if (!persistenceReady && persisted!==false) { return }
 
     console.log('we dont have the data persisted so fetch it')
 
@@ -845,7 +848,7 @@ function App(props: any) {
       .then( (arrayBuffer) => {
         setBlobData(arrayBuffer)
 
-        // FIXME: T'xns can fail if, eg, there's a clearing transaction in progress, so check this with an onerror handler()
+        // NB: The object store may be upgrading at the same time  FIXME: T'xns can fail if, eg, there's a clearing transaction in progress, try/catch the DOMException here so the db load still happens?
         const objects = globalThis._db.transaction(['migration-db'],'readwrite').objectStore('migration-db')
 
         // TODO: Delete all the db objects if they exist
@@ -857,7 +860,7 @@ function App(props: any) {
 
       }) 
 
-  },[persisted])
+  },[persistenceReady,persisted])
 
   // Exec our first queries now it's open 
   useEffect(() => {
