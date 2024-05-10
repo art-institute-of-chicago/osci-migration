@@ -121,7 +121,7 @@ function SelectedTocView(props: any) {
 
 function SelectedTextView(props: any) {
 
-  const { id, url, title, sections: sects, footnotes: fnotes, figures: figs } = props.data
+  const { id, url, title, error, sections: sects, footnotes: fnotes, figures: figs } = props.data
 
   const sections = ( sects ?? [] ).map( (sect: any) => {
 
@@ -184,6 +184,16 @@ function SelectedTextView(props: any) {
             <h2 className='title'>{title}</h2>
             <h3 className='subtitle'>{id}</h3>
             <div><a href={url} target="_blank">View raw HTML</a></div>
+
+            <article className={`message is-danger ${ error !== null ? '' : 'is-hidden'  }`}>
+              <div className="message-header">
+                <p>Document Parse Error</p>
+              </div>
+              <div className="message-body">
+                {error}
+              </div>
+            </article>
+
             {sections}
             <section className={`section footnotes-section ${footnotes.length > 0 ? '' : 'is-hidden' }`}>
               <h4 className='title'>Section:&nbsp;footnotes</h4>
@@ -212,7 +222,7 @@ function SelectedEntityView(props: any) {
 
   useEffect(() => {
     if (!ready) { return }
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `select id, title, type, package, data->>'$._url' as url, data->>'$.footnotes' as footnotes, data->>'$.sections' as sections, data->>'$.figures' as figures from documents where data->>'$._url'=?`, bind: [ props.selectedText ?? props.selectedToc ] }})     
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `select id, title, type, package, error, data->>'$._url' as url, data->>'$.footnotes' as footnotes, data->>'$.sections' as sections, data->>'$.figures' as figures from documents where data->>'$._url'=?`, bind: [ props.selectedText ?? props.selectedToc ] }})     
   },[ready,props.selectedText,props.selectedToc])
 
   const msgResponder = (event: any) => {
@@ -222,13 +232,13 @@ function SelectedEntityView(props: any) {
         if ( isResultTerminator(msg) ) { 
           return
         }
-        const { id, title, type, package: packageId, sections: sect, footnotes: fnotes, url, figures: figs } = msg.row
+        const { id, title, error, type, package: packageId, sections: sect, footnotes: fnotes, url, figures: figs } = msg.row
+
         const sections = JSON.parse(sect)
         const footnotes = JSON.parse(fnotes)
         const figures = JSON.parse(figs)
-
         setEntityType(type)
-        setData({id, title, package: packageId, sections, footnotes, figures, url })
+        setData({id, title, error, package: packageId, sections, footnotes, figures, url })
         break
       default:
         return
@@ -240,7 +250,7 @@ function SelectedEntityView(props: any) {
               entityType === 'toc' ? <SelectedTocView data={data} setSelected={props.setSelected} /> : ''
             }
             {
-              entityType === 'text' ? <SelectedTextView data={data} /> : ''
+              entityType === 'text' || entityType === null ? <SelectedTextView data={data} /> : ''
             }
           </div>
 }
@@ -553,12 +563,13 @@ function TextsView(props: any) {
             <tbody>
               { 
                 rows.map( (r: any) => {
+
                   return <tr>
                           <td>{r.id}</td>
                           <td>{r.package}</td>
                           <td className='link-col'><a href={r.url} target="_blank">View HTML/XML</a></td>
                           <td className='text-col'>{r.title}</td>
-                          <td className='text-col'>{r.error}</td>
+                          <td className={ `text-col ${r.error === null ? '' : 'is-danger'}` }>{r.error}</td>
                           <td className='link-col'><a href="#" target="_blank" onClick={ (e) => handleView(r,e) } >View</a></td>
                         </tr>
 
@@ -605,7 +616,7 @@ function PublicationsView(props: any) {
     event.preventDefault()
 
     // NB: Selecting TOCs not Publication objects
-    props.setSelected({ ...row, id: row.toc_id, label: row.name, url: row.toc_url })
+    props.setSelected({ id: row.toc_id, label: row.name, url: row.toc_url })
   }
 
   return <div className={`records records-publications ${props.className}`}>
