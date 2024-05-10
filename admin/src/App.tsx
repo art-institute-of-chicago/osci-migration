@@ -80,12 +80,13 @@ function SelectedTocView(props: any) {
     }
 
     return <article className='media'>
-              <figure className={ `media-left ${thumbnail ? '' : 'is-hidden'}` }>
-                <p className="image">
+              <figure className={`media-left` }>
+                <p className={ `image ${thumbnail ? '' : 'is-hidden'}` }>
                   <a href='#' onClick={ (e) => handleSelection(sect.url,e) }>
                     <img className="fig-thumb" fetchPriority={ i <= IMAGE_PRIORITY_THRESH ? 'high' : undefined } loading={ i > IMAGE_PRIORITY_THRESH ? 'lazy' : undefined } src={thumbnail} alt="" />
                   </a>
                 </p>
+                <figcaption>{id}</figcaption>
               </figure>
               <div className='media-content'> 
                 <div className='content'>
@@ -914,7 +915,7 @@ function App(props: any) {
 
     setNavStack([ ...navStack, item ])
     navToHash([...navStack, item])
-
+    scrollTo({top: 0})
   }
 
   const selectedTab = navStack.find( (ns: any) => ns.type === 'tab' ).id
