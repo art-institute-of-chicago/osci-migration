@@ -11,6 +11,10 @@
   min-height: 75px;
 }
 
+.fig-thumb {
+  max-width: 96px;
+}
+
 // TODO: Rewrite these rules to be responsive and not pixel magic
 .link-col {
   width: 30px;
@@ -26,3 +30,4 @@ th, td {
   min-width: 25px;
   max-width: 250px;
 }
+

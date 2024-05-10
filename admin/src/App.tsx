@@ -81,9 +81,9 @@ function SelectedTocView(props: any) {
 
     return <article className='media'>
               <figure className={ `media-left ${thumbnail ? '' : 'is-hidden'}` }>
-                <p className="image is-96x96">
+                <p className="image">
                   <a href='#' onClick={ (e) => handleSelection(sect.url,e) }>
-                    <img fetchPriority={ i <= IMAGE_PRIORITY_THRESH ? 'high' : undefined } loading={ i > IMAGE_PRIORITY_THRESH ? 'lazy' : undefined } src={thumbnail} alt="" />
+                    <img className="fig-thumb" fetchPriority={ i <= IMAGE_PRIORITY_THRESH ? 'high' : undefined } loading={ i > IMAGE_PRIORITY_THRESH ? 'lazy' : undefined } src={thumbnail} alt="" />
                   </a>
                 </p>
               </figure>
