@@ -4,47 +4,7 @@ import './App.scss'
 import dbFile from './data/migration.sqlite3?url'
 
 const IMAGE_PRIORITY_THRESH = 3
-
-// NB: This _db is really just so we can persist the blob and save some bandwidth
-declare global {
-  var _db: any
-}
-
-// Setup to use indexedDB to store fetched sqlite blobs
-const setupPersistence = () => {
-
-  const openRequest = window.indexedDB.open('migration',2)
-
-  openRequest.onerror = () => {
-    console.error(`Error opening indexedDB -- do we have permissions and are we in a secure context?`)
-  }
-
-  openRequest.onsuccess = (event: any) => {
-    globalThis._db = event.target.result
-
-    window.postMessage({type: 'persistence-ready'})
-    console.log("Success opening indexedDB for persistence")
-  }
-
-  openRequest.onupgradeneeded = (event: any) => {
-
-    // Setup the DB instead
-    globalThis._db = event.target.result
-    const txn = globalThis._db.createObjectStore('migration-db',{ keyPath: 'filename' })
-
-
-    txn.onerror = () => {
-      console.error("Failed to create object store in indexedDB!")
-    }
-
-    txn.oncomplete = () => {
-      // Sends a signal that `_db` is ready -- consumers _must_ wait before accessing 
-      window.postMessage({type: 'persistence-ready'})      
-    }
-
-  }
-
-}
+const INDEXEDDB_MIGRATION_VER = 2
 
 function LoadingView(props: any) {
   return <progress className={`progress is-success ${ props.ready ? 'is-hidden' : '' }`} value={undefined} max="100">&nbsp;</progress>
@@ -711,9 +671,9 @@ const tabLabels = (tab: string) => {
 function App(props: any) {
 
   const [workerReady,setWorkerReady] = useState(false)
-  const [persistenceReady,setPersistenceReady] = useState(false)
+  // const [persistenceReady,setPersistenceReady] = useState(false)
 
-  const [persisted,setPersisted] = useState(null as any)
+  // const [persisted,setPersisted] = useState(null as any)
   const [blobData,setBlobData] = useState(null as any) 
   const [dbOpen, setDbOpen] = useState(false)
   const [dbId, setDbId] = useState(null)
@@ -763,14 +723,63 @@ function App(props: any) {
       }
   }
 
-  // INIT: Try to setup persistence, fetch the db if there's no blob, open the db with the bytes 
 
   // TODO: Pop a modal when appError !== null
 
+  const checkAndFetchBlob = (db: any) => {
+
+    const txn = db.transaction(['migration-db'],'readwrite')
+    const store = txn.objectStore('migration-db')
+    const req = store.get(dbFile)
+    
+    req.onsuccess = (event: any) => {
+
+      if (!event.target.result) {
+
+        // No existing blob found for this db
+        console.log("Have indexedDB but no blob",db)
+        fetchBlob(db)
+        return
+
+      }
+
+      if (event.target.result.blob) {
+        setBlobData(event.target.result.blob)
+      }
+
+    }
+
+    req.onerror = () => {
+      fetchBlob(undefined)
+      console.log('error requesting the key')
+    }
+
+  }
+
+  const fetchBlob = (db: any) => {
+
+    fetch(dbFile)
+      .then( res => res.arrayBuffer() )
+      .then( (arrayBuffer) => {
+        setBlobData(arrayBuffer)
+
+        if (db) {
+
+          // TODO: Delete all the db objects if they exist
+          const req = db.transaction(['migration-db'],'readwrite').objectStore('migration-db').add({filename: dbFile, blob: arrayBuffer})
+      
+          req.oncomplete = () => {
+            console.log('Stored blob!')
+          }
+
+        }
+
+      }) 
+  }
+
+  // INIT: Add listeners, setup persistence a
   useEffect(() => {
 
-    // Listeners for the indexDB opening ceremony + sqlite worker
-    window.addEventListener("message", (e: any) => e.data.type === 'persistence-ready' ? setPersistenceReady(true) : '')
     sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
 
     // History pop handler
@@ -787,48 +796,40 @@ function App(props: any) {
 
     })
 
-    setupPersistence()
+    const openRequest = window.indexedDB.open('migration',INDEXEDDB_MIGRATION_VER)
 
+    openRequest.onerror = () => {
+      console.error(`Error opening indexedDB -- do we have permissions and are we in a secure context?`)
+    }
+
+    openRequest.onsuccess = (event: any) => {
+
+      if (event.target.result.version === INDEXEDDB_MIGRATION_VER) {
+
+        checkAndFetchBlob(event.target.result)
+        console.log("opened indexedDB")
+
+      }
+
+    }
+
+    openRequest.onupgradeneeded = (event: any) => {
+
+      // Setup the DB's tables and indexes
+      const txn = event.target.result.createObjectStore('migration-db',{ keyPath: 'filename' })
+
+      txn.onerror = () => {
+        console.error("Failed to upgrade object store in indexedDB!")
+      }
+
+      txn.oncomplete = () => {
+        fetchBlob(event.target.result)
+        console.log("db migrated and blob checked")
+      }
+
+    }
 
   },[])
-
-  useEffect(() => {
-
-    if (!persistenceReady) { return }
-
-    const objects = globalThis._db.transaction('migration-db').objectStore('migration-db')
-    const req = objects.openCursor(dbFile)
-    
-    req.onsuccess = () => {
-
-      if (req.result === null) {
-        console.log("Have indexedDB but no blob")
-        // No existing blob found for this db
-        setPersisted(false)
-        return
-      }
-
-      // This key exists so we can get its contents and set the blob
-      const getReq = objects.get(dbFile)
-      getReq.onsuccess = () => {
-        console.log("got em",getReq.result.blob.byteLength)
-        setBlobData(getReq.result.blob) 
-        setPersisted(true)
-      }
-
-      getReq.onerror = () => {
-        console.log('error getting')
-        setPersisted(false)
-      }
-
-    }
-
-    req.onerror = () => {
-      console.log('error requesting initially')
-      setPersisted(false)
-    }
-
-  },[persistenceReady])
 
   useEffect(() => {
     if (!workerReady) { return }
@@ -837,30 +838,6 @@ function App(props: any) {
     console.log('worker ready and blob data present with length',blobData.byteLength)
     sqlWorker.postMessage({type: 'open', args: {filename: "/test.sqlite3", byteArray: blobData }})
   },[blobData,workerReady])
-
-  useEffect(() => {
-    if (!persistenceReady && persisted!==false) { return }
-
-    console.log('we dont have the data persisted so fetch it')
-
-    fetch(dbFile)
-      .then( res => res.arrayBuffer() )
-      .then( (arrayBuffer) => {
-        setBlobData(arrayBuffer)
-
-        // NB: The object store may be upgrading at the same time  FIXME: T'xns can fail if, eg, there's a clearing transaction in progress, try/catch the DOMException here so the db load still happens?
-        const objects = globalThis._db.transaction(['migration-db'],'readwrite').objectStore('migration-db')
-
-        // TODO: Delete all the db objects if they exist
-        const req = objects.add({filename: dbFile, blob: arrayBuffer})
-    
-        req.oncomplete = () => {
-          console.log('Stored blob!')
-        }
-
-      }) 
-
-  },[persistenceReady,persisted])
 
   // Exec our first queries now it's open 
   useEffect(() => {
