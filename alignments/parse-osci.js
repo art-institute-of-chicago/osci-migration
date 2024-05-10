@@ -138,13 +138,15 @@ const parseTocSections = (doc) => {
       return 
     }
 
+    const titlePattern = /(?:<!\[CDATA\[)(.+?)(?:<!--\]\])/g
+
     // const paraFrag = /(^\[CDATA\[<p)/g
     // const tailFrag = /(\]\]>$)/g
     // Now we've got the TOC anchors, but things get a little wonky because they're all CDATA tags embeded in comments
 
     // TODO: Sanitize this embedded HTML
     // TODO: Create text-only representation of title (eg, html string -> dom node -> text content)
-    const commentFrag = /(\[CDATA\[)(.+)/g
+    const commentFrag = /(?<=\[CDATA\[)(\w.+?)(?:<!--]])/g
 
     let title = ''
     anchor.childNodes.forEach( n => {
@@ -154,19 +156,29 @@ const parseTocSections = (doc) => {
       }
 
       if (n.nodeType === doc.COMMENT_NODE ) { 
-        // TODO: Handle embedded content nodes ala `Collectors` subheds
+
+        // FIXME: Despite being identical to the literal, `commentFrag` does not work here?
+        const matches = [...n.textContent.matchAll(/(?<=\[CDATA\[)(\w.+?)(?:<!--]])/g)]
+        if (matches.length > 0) {
+          title += matches[0][1]
+        }
         return
       }
 
-      if ( n.outerHTML ) {
+      if ( n.outerHTML && n.outerHTML !== '<p></p>' ) {
         title += n.outerHTML      
-      } else {
+        return
+      } 
+
+      if ( n.textContent && n.textContent !== '-->' ) {
         title += n.textContent
+        return
       }
+
     })
 
     const url = anchor.href
-    const id = anchor.dataset.section_id
+    const id = `section-${anchor.dataset.section_id}` // NB: This is *not* namespaced!!
     const thumbnail = anchor.dataset.thumbnail 
     const subHeadings = JSON.parse(anchor.getAttribute('data-subHead')) // NB: getAttribute() because subHead doesn't pass dataset's camelCase/snake-case xform 
 
