@@ -29,15 +29,15 @@ function Pagination(props: any) {
     // TODO: Drop the page nums on mobile, next/prev take over full width
     // Capture the center three numbers
     const center: ( string | number )[] = current < 1 ? [ centerPage - 1, centerPage, centerPage + 1 ] : [ current - 1 , current, current + 1  ] 
-    return [0,'...'].concat(center).concat(['...',pages-1]) 
+    return [0,'...'].concat(center.filter( (c: any) => c > 0 && c < pages - 1 ) ).concat(['...',pages-1]) 
   }
 
   const showPrev = current > 0
   const showNext = (current + 1) < pages
 
   return <nav className="pagination" role="navigation" aria-label="pagination">
-            <a className={`pagination-previous ${ showPrev ? '' : 'is-disabled' }`} {...{disabled: !showPrev }} onClick={ () => showPrev ? setCurrent( current-1 ) : null } href="#">Previous</a>
-            <a className={`pagination-next ${ showNext ? '' : 'is-disabled' }` } {...{disabled: !showNext }} onClick={ () => showNext ? setCurrent( current + 1 ) : null }  href="#">Next page</a>
+            <a className={`pagination-previous ${ showPrev ? '' : 'is-disabled' }`} {...{disabled: !showPrev }} onClick={ (e: any) => { e.preventDefault(); showPrev ? setCurrent( current-1 ) : null } } href="#">Previous</a>
+            <a className={`pagination-next ${ showNext ? '' : 'is-disabled' }` } {...{disabled: !showNext }} onClick={ (e: any) => { e.preventDefault(); showNext ? setCurrent( current + 1 ) : null } } href="#">Next page</a>
             <ul className="pagination-list">
               {
                 pagesToPagination(pages,current).map( (p) => {
@@ -47,7 +47,7 @@ function Pagination(props: any) {
 
                     if (typeof p === 'number') {
                       return <li>
-                            <a href="#" className={`pagination-link ${ current === p ? 'is-current' : '' }`} aria-label={`Goto page ${p+1}`} onClick={ () => setCurrent(p) }>{p+1}</a>
+                            <a href="#" className={`pagination-link ${ current === p ? 'is-current' : '' }`} aria-label={`Goto page ${p+1}`} onClick={ (e: any) => { e.preventDefault(); setCurrent(p) } }>{p+1}</a>
                             </li>                      
                     }
 
@@ -285,7 +285,7 @@ function FiguresView(props: any) {
       props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-facet', rowMode: 'object', sql: `select distinct package as pkg from documents where type='figure'`, bind: [  ] }})     
     }
 
-    const offset = currentPage*25
+    const offset = Math.min(currentPage*25,props.count)
 
     // TODO: Ease the query params here so we can select on empty package and still get all results
     if (selectedFacet) {
@@ -443,7 +443,7 @@ function TextsView(props: any) {
       props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-facet', rowMode: 'object', sql: `select distinct package as pkg from documents where type='text' or type is null`, bind: [  ] }})     
     }
 
-    const offset = currentPage*25
+    const offset = Math.min(currentPage*25,props.count)
 
     // TODO: Ease the query params here so we can select on empty package and still get all results
     if (selectedFacet) {
@@ -873,8 +873,8 @@ function App(props: any) {
 
   }
 
-  const handleTabClick = (tab: string) => {
-
+  const handleTabClick = (tab: string, event: MouseEvent) => {
+    event.preventDefault()
     setNavStack([{'id': tab, 'url': '', 'label': tabLabels(tab), 'type': 'tab' }])
     navToHash([{'id': tab, 'url': '', 'label': tabLabels(tab), 'type': 'tab' }])
 
@@ -918,7 +918,7 @@ function App(props: any) {
     scrollTo({top: 0})
   }
 
-  const selectedTab = navStack.find( (ns: any) => ns.type === 'tab' ).id
+  const selectedTab = navStack.find( (ns: any) => ns.type === 'tab' )?.id ?? 'publications'
   const showBreadcrumbs = navStack.length > 1
   const showPublications = navStack.length === 1 && dbOpen && selectedTab === 'publications' 
   const showTexts = navStack.length === 1 && dbOpen && selectedTab === 'texts'
@@ -936,9 +936,9 @@ function App(props: any) {
 
         <div className={`tabs`}>
           <ul>
-            <li className={ selectedTab == 'publications' ? 'is-active' : ''}><a onClick={ () => handleTabClick('publications') } >{`${ tabLabels('publications') } (${pubCount ?? ''})`}</a></li>
-            <li className={ selectedTab == 'texts' ? 'is-active' : ''}><a onClick={ () => handleTabClick('texts') }>{`${ tabLabels('texts') } (${textCount ?? ''})`}</a></li>
-            <li className={ selectedTab == 'figures' ? 'is-active' : ''}><a onClick={ () => handleTabClick('figures') }>{`${ tabLabels('figures') } (${figureCount ?? ''})`}</a></li>
+            <li className={ selectedTab == 'publications' ? 'is-active' : ''}><a onClick={ (e: any) => handleTabClick('publications',e) } >{`${ tabLabels('publications') } (${pubCount ?? ''})`}</a></li>
+            <li className={ selectedTab == 'texts' ? 'is-active' : ''}><a onClick={ (e: any) => handleTabClick('texts',e) }>{`${ tabLabels('texts') } (${textCount ?? ''})`}</a></li>
+            <li className={ selectedTab == 'figures' ? 'is-active' : ''}><a onClick={ (e: any) => handleTabClick('figures',e) }>{`${ tabLabels('figures') } (${figureCount ?? ''})`}</a></li>
           </ul>
         </div>
         <nav className={ `breadcrumb ${ showBreadcrumbs ? '' : 'is-hidden' }` } aria-label='breadcrumbs'>
