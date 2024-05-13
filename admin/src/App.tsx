@@ -680,6 +680,8 @@ const tabLabels = (tab: string) => {
 
 }
 
+const navStackDefaultState = [{ id: 'publications', type: 'tab', label: tabLabels('publications') }]
+
 function App(props: any) {
 
   const [workerReady,setWorkerReady] = useState(false)
@@ -694,7 +696,7 @@ function App(props: any) {
   const [pubCount, setPubCount] = useState(null)
   const [textCount, setTextCount] = useState(null)
   const [figureCount, setFigureCount] = useState(null)
-  const [navStack,setNavStack] = useState([{ id: 'publications', type: 'tab', label: tabLabels('publications') }] as any)
+  const [navStack,setNavStack] = useState(navStackDefaultState as any)
 
   const [appError,_] = useState(null as any)
 
@@ -799,12 +801,11 @@ function App(props: any) {
 
       // Don't do anything for footnote and figure anchors (for now)
       if ( document.location.hash.startsWith('#fn-') || document.location.hash.startsWith('#fig-') ) { 
-        console.log(document.location.hash)
+        console.warn(`NOOP on hash ${document.location.hash}`)
         return 
       }
 
-      // console.log(event.location.hash)
-      setNavStack(event.state?.navStack ?? [])
+      setNavStack(event.state?.navStack ?? navStackDefaultState)
 
     })
 
