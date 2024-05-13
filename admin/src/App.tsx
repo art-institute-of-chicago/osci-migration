@@ -25,8 +25,7 @@ function Pagination(props: any) {
       return [...Array(pages).keys()]
     }
 
-    // TODO: A little rough here if you're on p = 1 or p = pages - 2
-    // TODO: Drop the page nums on mobile, next/prev take over full width
+    // TODO: Add a page label
     // Capture the center three numbers
     const center: ( string | number )[] = current < 1 ? [ centerPage - 1, centerPage, centerPage + 1 ] : [ current - 1 , current, current + 1  ] 
     return [0,'...'].concat(center.filter( (c: any) => c > 0 && c < pages - 1 ) ).concat(['...',pages-1]) 
@@ -38,7 +37,7 @@ function Pagination(props: any) {
   return <nav className="pagination" role="navigation" aria-label="pagination">
             <a className={`pagination-previous ${ showPrev ? '' : 'is-disabled' }`} {...{disabled: !showPrev }} onClick={ (e: any) => { e.preventDefault(); showPrev ? setCurrent( current-1 ) : null } } href="#">Previous</a>
             <a className={`pagination-next ${ showNext ? '' : 'is-disabled' }` } {...{disabled: !showNext }} onClick={ (e: any) => { e.preventDefault(); showNext ? setCurrent( current + 1 ) : null } } href="#">Next page</a>
-            <ul className="pagination-list">
+            <ul className="pagination-list is-hidden-mobile">
               {
                 pagesToPagination(pages,current).map( (p) => {
                     if (typeof p === 'string' && p === '...') {
@@ -110,7 +109,7 @@ function SelectedTocView(props: any) {
 
   }
 
-  return <div className='selected-toc-view'>
+  return <div className='selected-toc-view container'>
                 <h2 className='title'>Table of Contents for {data.package}</h2>
                 <div className='subtitle'><a href={data.url} target='_blank'>View raw</a></div>
                 {
@@ -148,7 +147,7 @@ function SelectedTextView(props: any) {
               <div className='media-content'>
                 <div className='content' dangerouslySetInnerHTML={{ __html: fn.noteHtml}}>
                 </div>
-                {/* TODO: Return to top link */}
+                {/* TODO: Return to ref link */}
               </div>
             </article>
   })
@@ -175,13 +174,13 @@ function SelectedTextView(props: any) {
                   <p><strong>columns</strong>:&nbsp;{columns}</p>
                   <p><strong>options</strong>:&nbsp;{options}</p>
                   {/* TODO: view figure link */}
-                  {/* TODO: return to top link */}
+                  {/* TODO: return to ref link */}
                 </div>
               </div>
     </article>
   })
 
-  return <div className='selected-text-view'>
+  return <div className='selected-text-view container'>
             <h2 className='title'>{title}</h2>
             <h3 className='subtitle'>{id}</h3>
             <div><a href={url} target="_blank">View raw HTML</a></div>
@@ -246,7 +245,7 @@ function SelectedEntityView(props: any) {
       }
   }
 
-  return <div className={`container box selected-record ${props.className}`}>
+  return <div className={`box selected-record ${props.className}`}>
             {
               entityType === 'toc' ? <SelectedTocView data={data} setSelected={props.setSelected} /> : ''
             }
@@ -958,9 +957,9 @@ function App(props: any) {
         </nav>
         <span>{appError ? appError : ''}</span>
         <LoadingView ready={dbOpen} />
-        <PublicationsView className={ showPublications ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={pubCount} dbId={dbId} setSelected={selectTOC} />
-        <TextsView className={ showTexts ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={textCount} setCount={setTextCount} dbId={dbId} setSelected={selectText} /> {  }
-        <FiguresView className={ showFigures ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={figureCount}  setCount={setFigureCount} dbId={dbId} /> 
+        <PublicationsView className={ showPublications ? 'table-container' : 'table-container is-hidden' } sqlWorker={sqlWorker} count={pubCount} dbId={dbId} setSelected={selectTOC} />
+        <TextsView className={ showTexts ? 'table-container' : 'table-container is-hidden' } sqlWorker={sqlWorker} count={textCount} setCount={setTextCount} dbId={dbId} setSelected={selectText} /> {  }
+        <FiguresView className={ showFigures ? 'table-container' : 'table-container is-hidden' } sqlWorker={sqlWorker} count={figureCount}  setCount={setFigureCount} dbId={dbId} /> 
         <SelectedEntityView className={ showSelectedEntity ? '' : 'is-hidden' } sqlWorker={sqlWorker} selectedText={selectedTextURL} selectedToc={selectedTocURL} setSelected={selectText} />
       </div>
   )
