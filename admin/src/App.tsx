@@ -358,9 +358,7 @@ function FiguresView(props: any) {
   return <div className={`records records-figures ${props.className}`}>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
           <div className='field'>
-
             <div className='control'>
-
               <div className='select'>
                 <select value={ selectedFacet ?? 'all' } onChange={ (e) => handleFacetChange(e) }>
                   <option value='all'>Select publication</option>
@@ -374,39 +372,39 @@ function FiguresView(props: any) {
                   }
                 </select>
               </div>
-              
             </div>
-
           </div>
-          <table className="table is-bordered is-striped is-hoverable">
-            <thead>
-              <tr>
-                <th><a href="#" onClick={ (e) => handleSortClick('id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'id' } order={sortOrder} >id</SortedHeaderLabel></a></th>
-                <th><a href="#" onClick={ (e) => handleSortClick('package',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'package' } order={sortOrder} >package</SortedHeaderLabel></a></th>
-                <th>raw_link</th>
-                <th>title</th>
-              </tr>
-            </thead>
-            <tfoot>
-                <th>id</th>
-                <th>package</th>
-                <th>raw_link</th>
-                <th>title</th>
-            </tfoot>
-            <tbody>
-              { 
-                rows.map( (r: any) => {
-                  return <tr>
-                          <td>{r.id}</td>
-                          <td>{r.package}</td>
-                          <td><a href={r.url} target="_blank">View Raw HTML/XML</a></td>
-                          <td>{r.title}</td>
-                        </tr>
+          <div className='table-container'>
+            <table className="table is-bordered is-striped is-hoverable">
+              <thead>
+                <tr>
+                  <th><a href="#" onClick={ (e) => handleSortClick('id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'id' } order={sortOrder} >id</SortedHeaderLabel></a></th>
+                  <th><a href="#" onClick={ (e) => handleSortClick('package',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'package' } order={sortOrder} >package</SortedHeaderLabel></a></th>
+                  <th>raw_link</th>
+                  <th>title</th>
+                </tr>
+              </thead>
+              <tfoot>
+                  <th>id</th>
+                  <th>package</th>
+                  <th>raw_link</th>
+                  <th>title</th>
+              </tfoot>
+              <tbody>
+                { 
+                  rows.map( (r: any) => {
+                    return <tr>
+                            <td>{r.id}</td>
+                            <td>{r.package}</td>
+                            <td><a href={r.url} target="_blank">View Raw HTML/XML</a></td>
+                            <td>{r.title}</td>
+                          </tr>
 
-                    })
-              }
-            </tbody>
-          </table>        
+                      })
+                }
+              </tbody>
+            </table>            
+          </div>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
         </div>
 }
@@ -539,44 +537,46 @@ function TextsView(props: any) {
             </div>
 
           </div>
-          <table className="table is-bordered is-striped is-hoverable is-fullwidth is-narrow">
-            <thead>
-              <tr>
-                <th scope='col'><a href="#" onClick={ (e) => handleSortClick('id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'id' } order={sortOrder} >id</SortedHeaderLabel></a></th>
-                <th scope='col'><a href="#" onClick={ (e) => handleSortClick('package',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'package' } order={sortOrder} >package</SortedHeaderLabel></a></th>
-                <th scope='col'>raw_link</th>
-                <th scope='col'><a href="#" onClick={ (e) => handleSortClick('title',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'title' } order={sortOrder} >title</SortedHeaderLabel></a></th>
-                <th scope='col'><a href="#" onClick={ (e) => handleSortClick('error',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'error' } order={sortOrder} >error</SortedHeaderLabel></a></th>
-                <th scope='col'>view</th>
-              </tr>
-            </thead>
-            <tfoot>
-              <tr>
-                <th>id</th>
-                <th>package</th>
-                <th>raw_link</th>
-                <th>title</th>
-                <th>error</th>
-                <th scope='col'>view</th>
-              </tr>
-            </tfoot>
-            <tbody>
-              { 
-                rows.map( (r: any) => {
+          <div className='table-container'>
+            <table className="table is-bordered is-striped is-hoverable is-fullwidth is-narrow">
+              <thead>
+                <tr>
+                  <th scope='col'><a href="#" onClick={ (e) => handleSortClick('id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'id' } order={sortOrder} >id</SortedHeaderLabel></a></th>
+                  <th scope='col'><a href="#" onClick={ (e) => handleSortClick('package',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'package' } order={sortOrder} >package</SortedHeaderLabel></a></th>
+                  <th scope='col'>raw_link</th>
+                  <th scope='col'><a href="#" onClick={ (e) => handleSortClick('title',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'title' } order={sortOrder} >title</SortedHeaderLabel></a></th>
+                  <th scope='col'><a href="#" onClick={ (e) => handleSortClick('error',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'error' } order={sortOrder} >error</SortedHeaderLabel></a></th>
+                  <th scope='col'>view</th>
+                </tr>
+              </thead>
+              <tfoot>
+                <tr>
+                  <th>id</th>
+                  <th>package</th>
+                  <th>raw_link</th>
+                  <th>title</th>
+                  <th>error</th>
+                  <th scope='col'>view</th>
+                </tr>
+              </tfoot>
+              <tbody>
+                { 
+                  rows.map( (r: any) => {
 
-                  return <tr>
-                          <td>{r.id}</td>
-                          <td>{r.package}</td>
-                          <td className='link-col'><a href={r.url} target="_blank">View HTML/XML</a></td>
-                          <td className='text-col'>{r.title}</td>
-                          <td className={ `text-col ${r.error === null ? '' : 'is-danger'}` }>{r.error}</td>
-                          <td className='link-col'><a href="#" target="_blank" onClick={ (e) => handleView(r,e) } >View</a></td>
-                        </tr>
+                    return <tr>
+                            <td>{r.id}</td>
+                            <td>{r.package}</td>
+                            <td className='link-col'><a href={r.url} target="_blank">View HTML/XML</a></td>
+                            <td className='text-col'>{r.title}</td>
+                            <td className={ `text-col ${r.error === null ? '' : 'is-danger'}` }>{r.error}</td>
+                            <td className='link-col'><a href="#" target="_blank" onClick={ (e) => handleView(r,e) } >View</a></td>
+                          </tr>
 
-                    })
-              }
-            </tbody>
-          </table>        
+                      })
+                }
+              </tbody>
+            </table>            
+          </div>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
         </div>
 }
@@ -621,44 +621,46 @@ function PublicationsView(props: any) {
 
   return <div className={`records records-publications ${props.className}`}>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
-          <table className="table is-bordered is-striped is-hoverable">
-            <thead>
-              <tr>
-                <th>id</th>
-                <th>title</th>
-                <th>id_urn</th>
-                <th>spine_length</th>
-                <th>view_osci</th>
-                <th>raw_link</th>
-                <th>view</th>
-              </tr>
-            </thead>
-            <tfoot>
-                <th>id</th>
-                <th>title</th>
-                <th>id_urn</th>
-                <th>spine_length</th>
-                <th>view_osci</th>
-                <th>raw_link</th>
-                <th>view</th>
-            </tfoot>
-            <tbody>
-              { 
-                rows.map( (r: any) => {
-                  return <tr>
-                          <td>{r.id}</td>
-                          <td>{r.name}</td>
-                          <td>{r.id_urn}</td>
-                          <td>{r.spine_length}</td>
-                          <td><a href={r.osci_url} target="_blank">View OSCI</a></td>
-                          <td><a href={r.url} target="_blank">View XML</a></td>
-                          <td><a href="#" target="_blank" onClick={ (e) => handleView(r,e) } >View TOC</a></td>
-                        </tr>
+          <div className="table-container">
+            <table className="table is-bordered is-striped is-hoverable">
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>title</th>
+                  <th>id_urn</th>
+                  <th>spine_length</th>
+                  <th>view_osci</th>
+                  <th>raw_link</th>
+                  <th>view</th>
+                </tr>
+              </thead>
+              <tfoot>
+                  <th>id</th>
+                  <th>title</th>
+                  <th>id_urn</th>
+                  <th>spine_length</th>
+                  <th>view_osci</th>
+                  <th>raw_link</th>
+                  <th>view</th>
+              </tfoot>
+              <tbody>
+                { 
+                  rows.map( (r: any) => {
+                    return <tr>
+                            <td>{r.id}</td>
+                            <td>{r.name}</td>
+                            <td>{r.id_urn}</td>
+                            <td>{r.spine_length}</td>
+                            <td><a href={r.osci_url} target="_blank">View OSCI</a></td>
+                            <td><a href={r.url} target="_blank">View XML</a></td>
+                            <td><a href="#" target="_blank" onClick={ (e) => handleView(r,e) } >View TOC</a></td>
+                          </tr>
 
-                    })
-              }
-            </tbody>
-          </table>        
+                      })
+                }
+              </tbody>
+            </table>           
+          </div>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
         </div>
         
@@ -957,9 +959,9 @@ function App(props: any) {
         </nav>
         <span>{appError ? appError : ''}</span>
         <LoadingView ready={dbOpen} />
-        <PublicationsView className={ showPublications ? 'table-container' : 'table-container is-hidden' } sqlWorker={sqlWorker} count={pubCount} dbId={dbId} setSelected={selectTOC} />
-        <TextsView className={ showTexts ? 'table-container' : 'table-container is-hidden' } sqlWorker={sqlWorker} count={textCount} setCount={setTextCount} dbId={dbId} setSelected={selectText} /> {  }
-        <FiguresView className={ showFigures ? 'table-container' : 'table-container is-hidden' } sqlWorker={sqlWorker} count={figureCount}  setCount={setFigureCount} dbId={dbId} /> 
+        <PublicationsView className={ showPublications ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={pubCount} dbId={dbId} setSelected={selectTOC} />
+        <TextsView className={ showTexts ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={textCount} setCount={setTextCount} dbId={dbId} setSelected={selectText} /> {  }
+        <FiguresView className={ showFigures ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={figureCount}  setCount={setFigureCount} dbId={dbId} /> 
         <SelectedEntityView className={ showSelectedEntity ? '' : 'is-hidden' } sqlWorker={sqlWorker} selectedText={selectedTextURL} selectedToc={selectedTocURL} setSelected={selectText} />
       </div>
   )
