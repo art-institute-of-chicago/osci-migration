@@ -64,7 +64,7 @@ function SortedHeaderLabel(props: any) {
 
 function SelectedTocView(props: any) {
 
-  const { data } = props
+  const { data, isHidden } = props
 
   const tocSection = (sect: any, i: number) => {
 
@@ -109,11 +109,11 @@ function SelectedTocView(props: any) {
 
   }
 
-  return <div className='selected-toc-view container'>
+  return <div className={`selected-toc-view container ${ isHidden ? 'is-hidden' : '' }`}>
                 <h2 className='title'>Table of Contents for {data.package}</h2>
                 <div className='subtitle'><a href={data.url} target='_blank'>View raw</a></div>
                 {
-                  'sections' in data ? data.sections.map( (sect: any, i: number) => tocSection(sect,i) ) : ''
+                  data?.sections ? data.sections.map( (sect: any, i: number) => tocSection(sect,i) ) : ''
                 }
               </div>
 
@@ -180,12 +180,12 @@ function SelectedTextView(props: any) {
     </article>
   })
 
-  return <div className='selected-text-view container'>
+  return <div className={`selected-text-view container ${ props.isHidden ? 'is-hidden' : '' }`}>
             <h2 className='title'>{title}</h2>
             <h3 className='subtitle'>{id}</h3>
             <div><a href={url} target="_blank">View raw HTML</a></div>
 
-            <article className={`message is-danger ${ error !== null ? '' : 'is-hidden'  }`}>
+            <article className={`message is-danger ${ error ? '' : 'is-hidden'  }`}>
               <div className="message-header">
                 <p>Document Parse Error</p>
               </div>
@@ -246,12 +246,8 @@ function SelectedEntityView(props: any) {
   }
 
   return <div className={`box selected-record ${props.className}`}>
-            {
-              entityType === 'toc' ? <SelectedTocView data={data} setSelected={props.setSelected} /> : ''
-            }
-            {
-              entityType === 'text' || entityType === null ? <SelectedTextView data={data} /> : ''
-            }
+            <SelectedTocView isHidden={ entityType !== 'toc' } data={data} setSelected={props.setSelected} />
+            <SelectedTextView isHidden={ entityType !== 'text' && entityType !== null } data={data} />
           </div>
 }
 
@@ -733,6 +729,10 @@ function App(props: any) {
         if ( isResultTerminator(msg) ) { return }
         setFigureCount(msg.row)
         break
+      case 'nav-state':
+        if ( isResultTerminator(msg) ) { return }
+        setNavStack( (stack: any) => [ ...stack, {...msg.row} ])        
+        break
       default:
         return
       }
@@ -860,7 +860,19 @@ function App(props: any) {
     console.log(`db open with id ${dbId}`)
 
     // TODO: If props.urlState !== {} load the items so they can be the navStack
-    console.log(props.urlState)
+    if (props.urlNavState.length > 0) {
+
+      const tabs = props.urlNavState.filter( (s: any) => s.type === 'tab' )
+      const nodes = props.urlNavState.filter( (s: any) => s.type === 'view' )
+
+      setNavStack(tabs.map( (s: any) => { return {...s, label: tabLabels(s.id) } } ))
+
+      if (nodes.length > 0) {
+        sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'nav-state', rowMode: 'object', sql: `select id,type,title as label,data->>'$._url' as url from documents where id in ( ${ nodes.map( () => '?' ).join(', ') } )`, bind: nodes.map( (s: any) => s.id ) }})      
+      }
+
+    }
+
     sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'pubs-count', rowMode: '$count', sql: `select count() as count from documents where type='osci-package'` }})
     sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from documents where type='text' or type is null` }})
     sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from documents where type='figure'` }})

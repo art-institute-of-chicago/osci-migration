@@ -5,14 +5,14 @@ import './index.css'
 
 // FIXME: Parse URL hash params for permalinks and pass to `App`
 
-function urlState() {
-  
+function urlState(separator=`|`) {
+  // Splits the current URL hash by `|`
   if ( window.location.hash === '' || window.location.hash == undefined ) { 
-    return {}
+    return []
   }
 
   const decoded = decodeURI(window.location.hash)
-  return decoded.split('|').map( h => h.replace(/^/,'') )
+  return decoded.split(separator)
                 .map( (h: string) => {
 
                   const matches = [...h.matchAll(/^#?(tab|view):(.+)/g)]
@@ -32,6 +32,6 @@ function urlState() {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App urlState={urlState()} />
+    <App urlNavState={urlState()} />
   </React.StrictMode>,
 )
