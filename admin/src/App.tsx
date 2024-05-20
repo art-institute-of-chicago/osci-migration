@@ -4,6 +4,7 @@ import './App.scss'
 import dbFile from './data/migration.sqlite3?url'
 
 const IMAGE_PRIORITY_THRESH = 3
+const INDEXEDDB_MIGRATION_VER = 2
 
 function LoadingView(props: any) {
   return <progress className={`progress is-success ${ props.ready ? 'is-hidden' : '' }`} value={undefined} max="100">&nbsp;</progress>
@@ -24,20 +25,19 @@ function Pagination(props: any) {
       return [...Array(pages).keys()]
     }
 
-    // TODO: A little rough here if you're on p = 1 or p = pages - 2
-    // TODO: Drop the page nums on mobile, next/prev take over full width
+    // TODO: Add a page label
     // Capture the center three numbers
     const center: ( string | number )[] = current < 1 ? [ centerPage - 1, centerPage, centerPage + 1 ] : [ current - 1 , current, current + 1  ] 
-    return [0,'...'].concat(center).concat(['...',pages-1]) 
+    return [0,'...'].concat(center.filter( (c: any) => c > 0 && c < pages - 1 ) ).concat(['...',pages-1]) 
   }
 
   const showPrev = current > 0
   const showNext = (current + 1) < pages
 
   return <nav className="pagination" role="navigation" aria-label="pagination">
-            <a className={`pagination-previous ${ showPrev ? '' : 'is-disabled' }`} {...{disabled: !showPrev }} onClick={ () => showPrev ? setCurrent( current-1 ) : null } href="#">Previous</a>
-            <a className={`pagination-next ${ showNext ? '' : 'is-disabled' }` } {...{disabled: !showNext }} onClick={ () => showNext ? setCurrent( current + 1 ) : null }  href="#">Next page</a>
-            <ul className="pagination-list">
+            <a className={`pagination-previous ${ showPrev ? '' : 'is-disabled' }`} {...{disabled: !showPrev }} onClick={ (e: any) => { e.preventDefault(); showPrev ? setCurrent( current-1 ) : null } } href="#">Previous</a>
+            <a className={`pagination-next ${ showNext ? '' : 'is-disabled' }` } {...{disabled: !showNext }} onClick={ (e: any) => { e.preventDefault(); showNext ? setCurrent( current + 1 ) : null } } href="#">Next page</a>
+            <ul className="pagination-list is-hidden-mobile">
               {
                 pagesToPagination(pages,current).map( (p) => {
                     if (typeof p === 'string' && p === '...') {
@@ -46,7 +46,7 @@ function Pagination(props: any) {
 
                     if (typeof p === 'number') {
                       return <li>
-                            <a href="#" className={`pagination-link ${ current === p ? 'is-current' : '' }`} aria-label={`Goto page ${p+1}`} onClick={ () => setCurrent(p) }>{p+1}</a>
+                            <a href="#" className={`pagination-link ${ current === p ? 'is-current' : '' }`} aria-label={`Goto page ${p+1}`} onClick={ (e: any) => { e.preventDefault(); setCurrent(p) } }>{p+1}</a>
                             </li>                      
                     }
 
@@ -64,27 +64,28 @@ function SortedHeaderLabel(props: any) {
 
 function SelectedTocView(props: any) {
 
-  const { data } = props
+  const { data, isHidden } = props
 
   const tocSection = (sect: any, i: number) => {
 
-    const { title, url, thumbnail, subHeadings, subSections } = sect
+    const { id, title, url, thumbnail, subHeadings, subSections } = sect
 
     const subheads = subHeadings ?? []
     const subsects = subSections ?? []
 
     const handleSelection = (url: string,event: any) => {
       event.preventDefault()
-      props.setSelected(url)
+      props.setSelected({ url, label: title, id: `${data.package}/${id}`, type: 'text' })
     }
 
     return <article className='media'>
-              <figure className={ `media-left ${thumbnail ? '' : 'is-hidden'}` }>
-                <p className="image is-96x96">
+              <figure className={`media-left` }>
+                <p className={ `image ${thumbnail ? '' : 'is-hidden'}` }>
                   <a href='#' onClick={ (e) => handleSelection(sect.url,e) }>
-                    <img fetchPriority={ i <= IMAGE_PRIORITY_THRESH ? 'high' : undefined } loading={ i > IMAGE_PRIORITY_THRESH ? 'lazy' : undefined } src={thumbnail} alt="" />
+                    <img className="fig-thumb" fetchPriority={ i <= IMAGE_PRIORITY_THRESH ? 'high' : undefined } loading={ i > IMAGE_PRIORITY_THRESH ? 'lazy' : undefined } src={thumbnail} alt="" />
                   </a>
                 </p>
+                <figcaption>{id}</figcaption>
               </figure>
               <div className='media-content'> 
                 <div className='content'>
@@ -108,11 +109,11 @@ function SelectedTocView(props: any) {
 
   }
 
-  return <div className='selected-toc-view'>
+  return <div className={`selected-toc-view container ${ isHidden ? 'is-hidden' : '' }`}>
                 <h2 className='title'>Table of Contents for {data.package}</h2>
                 <div className='subtitle'><a href={data.url} target='_blank'>View raw</a></div>
                 {
-                  'sections' in data ? data.sections.map( (sect: any, i: number) => tocSection(sect,i) ) : ''
+                  data?.sections ? data.sections.map( (sect: any, i: number) => tocSection(sect,i) ) : ''
                 }
               </div>
 
@@ -120,7 +121,7 @@ function SelectedTocView(props: any) {
 
 function SelectedTextView(props: any) {
 
-  const { id, url, title, sections: sects, footnotes: fnotes, figures: figs } = props.data
+  const { id, url, title, error, sections: sects, footnotes: fnotes, figures: figs } = props.data
 
   const sections = ( sects ?? [] ).map( (sect: any) => {
 
@@ -146,7 +147,7 @@ function SelectedTextView(props: any) {
               <div className='media-content'>
                 <div className='content' dangerouslySetInnerHTML={{ __html: fn.noteHtml}}>
                 </div>
-                {/* FIXME: Return to top link */}
+                {/* TODO: Return to ref link */}
               </div>
             </article>
   })
@@ -172,17 +173,27 @@ function SelectedTextView(props: any) {
                   <p><strong>aspect</strong>:&nbsp;{aspect}</p>
                   <p><strong>columns</strong>:&nbsp;{columns}</p>
                   <p><strong>options</strong>:&nbsp;{options}</p>
-                  {/* FIXME: view figure link */}
-                  {/* FIXME: return to top link */}
+                  {/* TODO: view figure link */}
+                  {/* TODO: return to ref link */}
                 </div>
               </div>
     </article>
   })
 
-  return <div className='selected-text-view'>
+  return <div className={`selected-text-view container ${ props.isHidden ? 'is-hidden' : '' }`}>
             <h2 className='title'>{title}</h2>
             <h3 className='subtitle'>{id}</h3>
             <div><a href={url} target="_blank">View raw HTML</a></div>
+
+            <article className={`message is-danger ${ error ? '' : 'is-hidden'  }`}>
+              <div className="message-header">
+                <p>Document Parse Error</p>
+              </div>
+              <div className="message-body">
+                {error}
+              </div>
+            </article>
+
             {sections}
             <section className={`section footnotes-section ${footnotes.length > 0 ? '' : 'is-hidden' }`}>
               <h4 className='title'>Section:&nbsp;footnotes</h4>
@@ -211,7 +222,7 @@ function SelectedEntityView(props: any) {
 
   useEffect(() => {
     if (!ready) { return }
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `select id, title, type, package, data->>'$._url' as url, data->>'$.footnotes' as footnotes, data->>'$.sections' as sections, data->>'$.figures' as figures from documents where data->>'$._url'=?`, bind: [ props.selectedText ?? props.selectedToc ] }})     
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `select id, title, type, package, error, data->>'$._url' as url, data->>'$.footnotes' as footnotes, data->>'$.sections' as sections, data->>'$.figures' as figures from documents where data->>'$._url'=?`, bind: [ props.selectedText ?? props.selectedToc ] }})     
   },[ready,props.selectedText,props.selectedToc])
 
   const msgResponder = (event: any) => {
@@ -221,26 +232,22 @@ function SelectedEntityView(props: any) {
         if ( isResultTerminator(msg) ) { 
           return
         }
-        const { id, title, type, package: packageId, sections: sect, footnotes: fnotes, url, figures: figs } = msg.row
+        const { id, title, error, type, package: packageId, sections: sect, footnotes: fnotes, url, figures: figs } = msg.row
+
         const sections = JSON.parse(sect)
         const footnotes = JSON.parse(fnotes)
         const figures = JSON.parse(figs)
-
         setEntityType(type)
-        setData({id, title, package: packageId, sections, footnotes, figures, url })
+        setData({id, title, error, package: packageId, sections, footnotes, figures, url })
         break
       default:
         return
       }
   }
 
-  return <div className={`container box selected-record ${props.className}`}>
-            {
-              entityType === 'toc' ? <SelectedTocView data={data} setSelected={props.setSelected} /> : ''
-            }
-            {
-              entityType === 'text' ? <SelectedTextView data={data} /> : ''
-            }
+  return <div className={`box selected-record ${props.className}`}>
+            <SelectedTocView isHidden={ entityType !== 'toc' } data={data} setSelected={props.setSelected} />
+            <SelectedTextView isHidden={ entityType !== 'text' && entityType !== null } data={data} />
           </div>
 }
 
@@ -273,7 +280,7 @@ function FiguresView(props: any) {
       props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-facet', rowMode: 'object', sql: `select distinct package as pkg from documents where type='figure'`, bind: [  ] }})     
     }
 
-    const offset = currentPage*25
+    const offset = Math.min(currentPage*25,props.count)
 
     // TODO: Ease the query params here so we can select on empty package and still get all results
     if (selectedFacet) {
@@ -347,9 +354,7 @@ function FiguresView(props: any) {
   return <div className={`records records-figures ${props.className}`}>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
           <div className='field'>
-
             <div className='control'>
-
               <div className='select'>
                 <select value={ selectedFacet ?? 'all' } onChange={ (e) => handleFacetChange(e) }>
                   <option value='all'>Select publication</option>
@@ -363,39 +368,39 @@ function FiguresView(props: any) {
                   }
                 </select>
               </div>
-              
             </div>
-
           </div>
-          <table className="table is-bordered is-striped is-hoverable">
-            <thead>
-              <tr>
-                <th><a href="#" onClick={ (e) => handleSortClick('id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'id' } order={sortOrder} >id</SortedHeaderLabel></a></th>
-                <th><a href="#" onClick={ (e) => handleSortClick('package',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'package' } order={sortOrder} >package</SortedHeaderLabel></a></th>
-                <th>raw_link</th>
-                <th>title</th>
-              </tr>
-            </thead>
-            <tfoot>
-                <th>id</th>
-                <th>package</th>
-                <th>raw_link</th>
-                <th>title</th>
-            </tfoot>
-            <tbody>
-              { 
-                rows.map( (r: any) => {
-                  return <tr>
-                          <td>{r.id}</td>
-                          <td>{r.package}</td>
-                          <td><a href={r.url} target="_blank">View Raw HTML/XML</a></td>
-                          <td>{r.title}</td>
-                        </tr>
+          <div className='table-container'>
+            <table className="table is-bordered is-striped is-hoverable">
+              <thead>
+                <tr>
+                  <th><a href="#" onClick={ (e) => handleSortClick('id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'id' } order={sortOrder} >id</SortedHeaderLabel></a></th>
+                  <th><a href="#" onClick={ (e) => handleSortClick('package',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'package' } order={sortOrder} >package</SortedHeaderLabel></a></th>
+                  <th>raw_link</th>
+                  <th>title</th>
+                </tr>
+              </thead>
+              <tfoot>
+                  <th>id</th>
+                  <th>package</th>
+                  <th>raw_link</th>
+                  <th>title</th>
+              </tfoot>
+              <tbody>
+                { 
+                  rows.map( (r: any) => {
+                    return <tr>
+                            <td>{r.id}</td>
+                            <td>{r.package}</td>
+                            <td><a href={r.url} target="_blank">View Raw HTML/XML</a></td>
+                            <td>{r.title}</td>
+                          </tr>
 
-                    })
-              }
-            </tbody>
-          </table>        
+                      })
+                }
+              </tbody>
+            </table>            
+          </div>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
         </div>
 }
@@ -431,7 +436,7 @@ function TextsView(props: any) {
       props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-facet', rowMode: 'object', sql: `select distinct package as pkg from documents where type='text' or type is null`, bind: [  ] }})     
     }
 
-    const offset = currentPage*25
+    const offset = Math.min(currentPage*25,props.count)
 
     // TODO: Ease the query params here so we can select on empty package and still get all results
     if (selectedFacet) {
@@ -472,9 +477,9 @@ function TextsView(props: any) {
       }
   }
 
-  const handleView = (url: string,event: any) => {
+  const handleView = (row: any,event: any) => {
     event.preventDefault()
-    props.setSelected(url)
+    props.setSelected({...row, label: row.title, type: 'text'})
   }
 
   const handleSortClick = (col: string,event: any) => {
@@ -528,43 +533,46 @@ function TextsView(props: any) {
             </div>
 
           </div>
-          <table className="table is-bordered is-striped is-hoverable is-fullwidth is-narrow">
-            <thead>
-              <tr>
-                <th scope='col'><a href="#" onClick={ (e) => handleSortClick('id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'id' } order={sortOrder} >id</SortedHeaderLabel></a></th>
-                <th scope='col'><a href="#" onClick={ (e) => handleSortClick('package',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'package' } order={sortOrder} >package</SortedHeaderLabel></a></th>
-                <th scope='col'>raw_link</th>
-                <th scope='col'><a href="#" onClick={ (e) => handleSortClick('title',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'title' } order={sortOrder} >title</SortedHeaderLabel></a></th>
-                <th scope='col'><a href="#" onClick={ (e) => handleSortClick('error',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'error' } order={sortOrder} >error</SortedHeaderLabel></a></th>
-                <th scope='col'>view</th>
-              </tr>
-            </thead>
-            <tfoot>
-              <tr>
-                <th>id</th>
-                <th>package</th>
-                <th>raw_link</th>
-                <th>title</th>
-                <th>error</th>
-                <th scope='col'>view</th>
-              </tr>
-            </tfoot>
-            <tbody>
-              { 
-                rows.map( (r: any) => {
-                  return <tr>
-                          <td>{r.id}</td>
-                          <td>{r.package}</td>
-                          <td className='link-col'><a href={r.url} target="_blank">View HTML/XML</a></td>
-                          <td className='text-col'>{r.title}</td>
-                          <td className='text-col'>{r.error}</td>
-                          <td className='link-col'><a href="#" target="_blank" onClick={ (e) => handleView(r.url,e) } >View</a></td>
-                        </tr>
+          <div className='table-container'>
+            <table className="table is-bordered is-striped is-hoverable is-fullwidth is-narrow">
+              <thead>
+                <tr>
+                  <th scope='col'><a href="#" onClick={ (e) => handleSortClick('id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'id' } order={sortOrder} >id</SortedHeaderLabel></a></th>
+                  <th scope='col'><a href="#" onClick={ (e) => handleSortClick('package',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'package' } order={sortOrder} >package</SortedHeaderLabel></a></th>
+                  <th scope='col'>raw_link</th>
+                  <th scope='col'><a href="#" onClick={ (e) => handleSortClick('title',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'title' } order={sortOrder} >title</SortedHeaderLabel></a></th>
+                  <th scope='col'><a href="#" onClick={ (e) => handleSortClick('error',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'error' } order={sortOrder} >error</SortedHeaderLabel></a></th>
+                  <th scope='col'>view</th>
+                </tr>
+              </thead>
+              <tfoot>
+                <tr>
+                  <th>id</th>
+                  <th>package</th>
+                  <th>raw_link</th>
+                  <th>title</th>
+                  <th>error</th>
+                  <th scope='col'>view</th>
+                </tr>
+              </tfoot>
+              <tbody>
+                { 
+                  rows.map( (r: any) => {
 
-                    })
-              }
-            </tbody>
-          </table>        
+                    return <tr>
+                            <td>{r.id}</td>
+                            <td>{r.package}</td>
+                            <td className='link-col'><a href={r.url} target="_blank">View HTML/XML</a></td>
+                            <td className='text-col'>{r.title}</td>
+                            <td className={ `text-col ${r.error === null ? '' : 'is-danger'}` }>{r.error}</td>
+                            <td className='link-col'><a href="#" target="_blank" onClick={ (e) => handleView(r,e) } >View</a></td>
+                          </tr>
+
+                      })
+                }
+              </tbody>
+            </table>            
+          </div>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
         </div>
 }
@@ -584,7 +592,7 @@ function PublicationsView(props: any) {
     if ( props.dbId === null ) { return }
     props.sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
 
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select id, data->>'$._href' as url, title as name, data->>'$._id_urn' as id_urn, json_array_length(data,'$._spine.itemref') as spine_length, data->>'$._toc_url' as toc_url, data->>'$._reader_url' as osci_url from documents where type='osci-package' order by id` }})
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select documents.id, documents.data->>'$._href' as url, documents.title as name, documents.data->>'$._id_urn' as id_urn, json_array_length(documents.data,'$._spine.itemref') as spine_length, documents.data->>'$._toc_url' as toc_url, documents.data->>'$._reader_url' as osci_url, d.id as toc_id from documents left join documents as d on (documents.data->>'$._toc_url')=d.data->>'$._url' where documents.type='osci-package' order by documents.id` }})
 
   },[props.sqlWorker,props.dbId])
 
@@ -600,90 +608,99 @@ function PublicationsView(props: any) {
       }
   }
 
-  const handleView = (url: string,event: any) => {
+  const handleView = (row: any,event: any) => {
     event.preventDefault()
-    props.setSelected(url)
+
+    // NB: Selecting TOCs not Publication objects
+    props.setSelected({ id: row.toc_id, label: row.name, url: row.toc_url })
   }
 
   return <div className={`records records-publications ${props.className}`}>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
-          <table className="table is-bordered is-striped is-hoverable">
-            <thead>
-              <tr>
-                <th>id</th>
-                <th>title</th>
-                <th>id_urn</th>
-                <th>spine_length</th>
-                <th>view_osci</th>
-                <th>raw_link</th>
-                <th>view</th>
-              </tr>
-            </thead>
-            <tfoot>
-                <th>id</th>
-                <th>title</th>
-                <th>id_urn</th>
-                <th>spine_length</th>
-                <th>view_osci</th>
-                <th>raw_link</th>
-                <th>view</th>
-            </tfoot>
-            <tbody>
-              { 
-                rows.map( (r: any) => {
-                  return <tr>
-                          <td>{r.id}</td>
-                          <td>{r.name}</td>
-                          <td>{r.id_urn}</td>
-                          <td>{r.spine_length}</td>
-                          <td><a href={r.osci_url} target="_blank">View OSCI</a></td>
-                          <td><a href={r.url} target="_blank">View XML</a></td>
-                          <td><a href="#" target="_blank" onClick={ (e) => handleView(r.toc_url,e) } >View TOC</a></td>
-                        </tr>
+          <div className="table-container">
+            <table className="table is-bordered is-striped is-hoverable">
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>title</th>
+                  <th>id_urn</th>
+                  <th>spine_length</th>
+                  <th>view_osci</th>
+                  <th>raw_link</th>
+                  <th>view</th>
+                </tr>
+              </thead>
+              <tfoot>
+                  <th>id</th>
+                  <th>title</th>
+                  <th>id_urn</th>
+                  <th>spine_length</th>
+                  <th>view_osci</th>
+                  <th>raw_link</th>
+                  <th>view</th>
+              </tfoot>
+              <tbody>
+                { 
+                  rows.map( (r: any) => {
+                    return <tr>
+                            <td>{r.id}</td>
+                            <td>{r.name}</td>
+                            <td>{r.id_urn}</td>
+                            <td>{r.spine_length}</td>
+                            <td><a href={r.osci_url} target="_blank">View OSCI</a></td>
+                            <td><a href={r.url} target="_blank">View XML</a></td>
+                            <td><a href="#" target="_blank" onClick={ (e) => handleView(r,e) } >View TOC</a></td>
+                          </tr>
 
-                    })
-              }
-            </tbody>
-          </table>        
+                      })
+                }
+              </tbody>
+            </table>           
+          </div>
           <Pagination current={currentPage} count={props.count} pageSize={25} setCurrent={setCurrentPage} />
         </div>
         
 }
 
-function App() {
+const tabLabels = (tab: string) => {
+
+  switch (tab) {
+  case 'publications':
+    return 'Publications'
+  case 'texts':
+    return 'Texts'
+  case 'figures':
+    return 'Figures' 
+  default:
+    return ''
+  }
+
+}
+
+const navStackDefaultState = [{ id: 'publications', type: 'tab', label: tabLabels('publications') }]
+
+function App(props: any) {
 
   const [workerReady,setWorkerReady] = useState(false)
+  // const [persistenceReady,setPersistenceReady] = useState(false)
+
+  // const [persisted,setPersisted] = useState(null as any)
+  const [blobData,setBlobData] = useState(null as any) 
   const [dbOpen, setDbOpen] = useState(false)
   const [dbId, setDbId] = useState(null)
 
-  const [selectedTab,setSelectedTab] = useState('publications')
-  const [selectedTocURL,setSelectedTocURL] = useState(null)
-  const [selectedTextURL,setSelectedTextURL] = useState(null)
-  const [selectedTocLabel,setSelectedTocLabel] = useState(null)
-  const [selectedTextLabel,setSelectedTextLabel] = useState(null)
+  // const [selectedTab,setSelectedTab] = useState('publications')
   const [pubCount, setPubCount] = useState(null)
   const [textCount, setTextCount] = useState(null)
   const [figureCount, setFigureCount] = useState(null)
+  const [navStack,setNavStack] = useState(navStackDefaultState as any)
+
+  const [appError,_] = useState(null as any)
 
   const sqlWorker = useMemo(
                       () => new Worker(new URL( './worker.js',import.meta.url)), 
                             []
                       )
-
-  const tabLabels = (tab: string) => {
-
-    switch (tab) {
-    case 'publications':
-      return 'Publications'
-    case 'texts':
-      return 'Texts'
-    case 'figures':
-      return 'Figures' 
-    default:
-      return ''     
-    }
-
-  }
 
   const msgResponder = (event: any) => {
     const msg = event.data
@@ -712,42 +729,149 @@ function App() {
         if ( isResultTerminator(msg) ) { return }
         setFigureCount(msg.row)
         break
-      case 'selected-toc-label':
+      case 'nav-state':
         if ( isResultTerminator(msg) ) { return }
-        setSelectedTocLabel(msg.row)
-        break
-      case 'selected-text-label':
-        if ( isResultTerminator(msg) ) { return }
-        setSelectedTextLabel(msg.row)
+        setNavStack( (stack: any) => [ ...stack, {...msg.row} ])        
         break
       default:
         return
       }
   }
 
-  sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
 
-  // INIT: Fetch the db, open the db with the bytes 
-  useEffect(() => {
-    if (!workerReady) { return }
+  // TODO: Pop a modal when appError !== null
 
-    console.log('worker ready')
+  const checkAndFetchBlob = (db: any) => {
+
+    const txn = db.transaction(['migration-db'],'readwrite')
+    const store = txn.objectStore('migration-db')
+    const req = store.get(dbFile)
+    
+    req.onsuccess = (event: any) => {
+
+      if (!event.target.result) {
+
+        // No existing blob found for this db
+        console.log("Have indexedDB but no blob",db)
+        fetchBlob(db)
+        return
+
+      }
+
+      if (event.target.result.blob) {
+        setBlobData(event.target.result.blob)
+      }
+
+    }
+
+    req.onerror = () => {
+      fetchBlob(undefined)
+      console.log('error requesting the key')
+    }
+
+  }
+
+  const fetchBlob = (db: any) => {
 
     fetch(dbFile)
       .then( res => res.arrayBuffer() )
       .then( (arrayBuffer) => {
+        setBlobData(arrayBuffer)
 
-        sqlWorker.postMessage({type: 'open', args: {filename: "/test.sqlite3", byteArray: arrayBuffer }})
+        if (db) {
+
+          // TODO: Delete all the db objects if they exist
+          const req = db.transaction(['migration-db'],'readwrite').objectStore('migration-db').add({filename: dbFile, blob: arrayBuffer})
+      
+          req.oncomplete = () => {
+            console.log('Stored blob!')
+          }
+
+        }
 
       }) 
+  }
 
-  },[workerReady])
+  // INIT: Add listeners, setup persistence a
+  useEffect(() => {
 
-  // Exec our first query now it's open 
+    sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
+
+    // History pop handler
+    window.addEventListener('popstate', (event: any) => { 
+
+      // Don't do anything for footnote and figure anchors (for now)
+      if ( document.location.hash.startsWith('#fn-') || document.location.hash.startsWith('#fig-') ) { 
+        console.warn(`NOOP on hash ${document.location.hash}`)
+        return 
+      }
+
+      setNavStack(event.state?.navStack ?? navStackDefaultState)
+
+    })
+
+    const openRequest = window.indexedDB.open('migration',INDEXEDDB_MIGRATION_VER)
+
+    openRequest.onerror = () => {
+      console.error(`Error opening indexedDB -- do we have permissions and are we in a secure context?`)
+    }
+
+    openRequest.onsuccess = (event: any) => {
+
+      if (event.target.result.version === INDEXEDDB_MIGRATION_VER) {
+
+        checkAndFetchBlob(event.target.result)
+        console.log("opened indexedDB")
+
+      }
+
+    }
+
+    openRequest.onupgradeneeded = (event: any) => {
+
+      // Setup the DB's tables and indexes
+      const txn = event.target.result.createObjectStore('migration-db',{ keyPath: 'filename' })
+
+      txn.onerror = () => {
+        console.error("Failed to upgrade object store in indexedDB!")
+      }
+
+      txn.oncomplete = () => {
+        fetchBlob(event.target.result)
+        console.log("db migrated and blob checked")
+      }
+
+    }
+
+  },[])
+
+  useEffect(() => {
+    if (!workerReady) { return }
+    if (blobData===null) { return }
+
+    console.log('worker ready and blob data present with length',blobData.byteLength)
+    sqlWorker.postMessage({type: 'open', args: {filename: "/test.sqlite3", byteArray: blobData }})
+  },[blobData,workerReady])
+
+  // Exec our first queries now it's open 
   useEffect(() => {
     if (!dbOpen || dbId===null ) { return }
 
     console.log(`db open with id ${dbId}`)
+
+    // TODO: If props.urlState !== {} load the items so they can be the navStack
+    if (props.urlNavState.length > 0) {
+
+      const tabs = props.urlNavState.filter( (s: any) => s.type === 'tab' )
+      const nodes = props.urlNavState.filter( (s: any) => s.type === 'view' )
+
+      setNavStack(tabs.map( (s: any) => { return {...s, label: tabLabels(s.id) } } ))
+
+      if (nodes.length > 0) {
+        sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'nav-state', rowMode: 'object', sql: `select id,type,title as label,data->>'$._url' as url from documents where id in ( ${ nodes.map( () => '?' ).join(', ') } )`, bind: nodes.map( (s: any) => s.id ) }})      
+      }
+
+    }
 
     sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'pubs-count', rowMode: '$count', sql: `select count() as count from documents where type='osci-package'` }})
     sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from documents where type='text' or type is null` }})
@@ -755,39 +879,69 @@ function App() {
 
   },[dbOpen,dbId])
 
-  const handleRootClick = (event: any) => {
+  const handleBreadcrumbClick = (idx: number,event: any) => {
     event.preventDefault()
-    setSelectedTocURL(null)
-    setSelectedTextURL(null)
+
+    setNavStack([ ...navStack.slice(0,idx+1) ])
+    navToHash([ ...navStack.slice(0,idx+1) ])
+
   }
 
-  const handleBreadcrumbClick = (event: any) => {
+  const handleTabClick = (tab: string, event: MouseEvent) => {
     event.preventDefault()
-    setSelectedTextURL(null)
-    setSelectedTextLabel(null)
+    setNavStack([{'id': tab, 'url': '', 'label': tabLabels(tab), 'type': 'tab' }])
+    navToHash([{'id': tab, 'url': '', 'label': tabLabels(tab), 'type': 'tab' }])
+
   }
 
-  const handleTabClick = (tab: string) => {
-    setSelectedTab(tab)
-    setSelectedTocURL(null)
-    setSelectedTextURL(null)
+  const navToHash = (stack: any) => {
+
+    // NB: Slicing here so we miss the tab root nav item in labelling
+    const titleString = stack.length > 0 ? stack.slice(-1)[0].label : ''
+    const hashString = stack.map( (ns: any) => {
+      switch (ns.type) {
+      case 'tab':
+        return `tab:${ns.id}`
+      default:
+        return `view:${ns.id}`      
+      }
+    }).join('|')
+
+    document.title = `OSCI Publications - ${titleString}`
+    window.history.pushState({ navStack: stack },`OSCI Publications - ${titleString}`,`#${hashString}`)
+
   }
 
-  const selectTOC = (url: any) => {
-    setSelectedTocURL(url)
-    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'selected-toc-label', rowMode: '$title', sql: `select title from documents where type='osci-package' and data->>'$._toc_url'=?`, bind: [ url ]  }})
+  const selectTOC = (tocItem: any) => {
+
+    const { id, url, label } = tocItem
+    const item = { id, url, label, type: 'toc' }
+
+    setNavStack([ ...navStack, item ])
+    navToHash([ ...navStack, item ])
+
   }
 
-  const selectText = (url: any) => {
-    setSelectedTextURL(url)
-    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'selected-text-label', rowMode: '$title', sql: `select title from documents where type='text' and data->>'$._url'=?`, bind: [ url ]  }})
+  const selectText = (textItem: any) => {
+
+    const { id, url, label } = textItem
+    const item = { id, url, label, type: 'text' }
+
+    setNavStack([ ...navStack, item ])
+    navToHash([...navStack, item])
+    scrollTo({top: 0})
   }
 
-  const showBreadcrumbs = !selectedTocURL && !selectedTextURL
-  const showPublications = !selectedTextURL && !selectedTocURL && selectedTab === 'publications' && dbOpen
-  const showTexts = !selectedTextURL && !selectedTocURL && selectedTab === 'texts' && dbOpen
-  const showFigures = !selectedTextURL && !selectedTocURL && selectedTab === 'figures' && dbOpen
-  const showSelectedEntity = selectedTextURL !== null || selectedTocURL !== null && dbOpen
+  const selectedTab = navStack.find( (ns: any) => ns.type === 'tab' )?.id ?? 'publications'
+  const showBreadcrumbs = navStack.length > 1
+  const showPublications = navStack.length === 1 && dbOpen && selectedTab === 'publications' 
+  const showTexts = navStack.length === 1 && dbOpen && selectedTab === 'texts'
+  const showFigures = navStack.length === 1 && dbOpen && selectedTab === 'figures'
+  const showSelectedEntity = navStack.length > 1 && dbOpen
+
+  const lastNavItem = navStack.length > 0 ? navStack.slice(-1)[0] : null  
+  const selectedTextURL = lastNavItem && lastNavItem.type === 'text' ? lastNavItem.url : null
+  const selectedTocURL = lastNavItem && lastNavItem.type === 'toc' ? lastNavItem.url : null
 
   return (
       <div className="container">
@@ -796,18 +950,26 @@ function App() {
 
         <div className={`tabs`}>
           <ul>
-            <li className={ selectedTab == 'publications' ? 'is-active' : ''}><a onClick={ () => handleTabClick('publications') } >{`${ tabLabels('publications') } (${pubCount ?? ''})`}</a></li>
-            <li className={ selectedTab == 'texts' ? 'is-active' : ''}><a onClick={ () => handleTabClick('texts') }>{`${ tabLabels('texts') } (${textCount ?? ''})`}</a></li>
-            <li className={ selectedTab == 'figures' ? 'is-active' : ''}><a onClick={ () => handleTabClick('figures') }>{`${ tabLabels('figures') } (${figureCount ?? ''})`}</a></li>
+            <li className={ selectedTab == 'publications' ? 'is-active' : ''}><a onClick={ (e: any) => handleTabClick('publications',e) } >{`${ tabLabels('publications') } (${pubCount ?? ''})`}</a></li>
+            <li className={ selectedTab == 'texts' ? 'is-active' : ''}><a onClick={ (e: any) => handleTabClick('texts',e) }>{`${ tabLabels('texts') } (${textCount ?? ''})`}</a></li>
+            <li className={ selectedTab == 'figures' ? 'is-active' : ''}><a onClick={ (e: any) => handleTabClick('figures',e) }>{`${ tabLabels('figures') } (${figureCount ?? ''})`}</a></li>
           </ul>
         </div>
-        <nav className={ `breadcrumb ${ showBreadcrumbs ? 'is-hidden' : '' }` } aria-label='breadcrumbs'>
+        <nav className={ `breadcrumb ${ showBreadcrumbs ? '' : 'is-hidden' }` } aria-label='breadcrumbs'>
           <ul>
-            <li><a href="#" onClick={ (e) => handleRootClick(e) } >{ `${ tabLabels(selectedTab) }` }</a></li>
-            <li className={ selectedTocURL && selectedTextURL ? '' : 'is-hidden' } ><a href="#" onClick={ (e) => handleBreadcrumbClick(e) } >{ `${ selectedTocLabel }` }</a></li>
-            <li className='is-active'><a href="#" aria-current='page' onClick={ (e) => e.preventDefault() } >{ selectedTextLabel ?? selectedTocLabel }</a></li>
+            {
+              navStack.map( (navItem: any,idx: number) => {
+                const activeItem = idx === navStack.length - 1
+                return <li className={`${ activeItem ? 'is-active' : '' }`}>
+                          <a href="#" aria-current={ activeItem ? 'page' : undefined } onClick={ (e) => handleBreadcrumbClick(idx,e) } >
+                            { `${ navItem.label }` }
+                          </a>
+                        </li>
+              })
+            }
           </ul>
         </nav>
+        <span>{appError ? appError : ''}</span>
         <LoadingView ready={dbOpen} />
         <PublicationsView className={ showPublications ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={pubCount} dbId={dbId} setSelected={selectTOC} />
         <TextsView className={ showTexts ? '' : 'is-hidden' } sqlWorker={sqlWorker} count={textCount} setCount={setTextCount} dbId={dbId} setSelected={selectText} /> {  }
