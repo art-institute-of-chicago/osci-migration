@@ -26,7 +26,7 @@ When the pipeline runs, an .opf URL is processed through these stages:
 - Store publication metadata (title, identifier URN, etc) into properties (names.title, etc)
 - "Unarchive" the manifest's `spine` contents so they are treated as messages of their own in the processor
 - Fetch each of the `spine` items and cache the response in `data/osci_url_cache.sqlite3`
-- Pass the raw HTML from the document to a javascript-based HTML parser (`scripts/parse-osci.js`) to process each message's embedded HTML data according to its type (TOC, contribution, entry, etc)
+- Pass the raw HTML from the document to a javascript-based HTML parser (`alignments/parse-osci.js`) to process each message's embedded HTML data according to its type (TOC, contribution, entry, etc)
 - Insert into a database at `output/migration.sqlite3`
 - TODO: A migration script transforms the single-table `documents` table into CMS-aligned tables w/ FKs, blocks, etc.
 
@@ -70,7 +70,6 @@ This will:
 - Run the pipeline to unpackage OSCI publications and put a database with the results in `output/migrated.sqlite3`
 
 For more on the actual pipeline stages and how to modify it, see [Configuration](#configuration).
-
 ### Running
 
 - TODO: Describe any settable env vars that make things happen (eg, LOG_LEVEL, LOG_TYPE, etc)
