@@ -2,32 +2,37 @@
 
 # OSCI Migration Tooling
 
-This repo contains a [benthos](https://benthos.dev) pipeline and some javascript functions for fetching, unpacking, and creating JSON for an OSCI publication from its manifest file. Everything listed in the manifest is fetched, given a package-scoped URI, transformed a bit, and then streamed into a sqlite database for going some other cool place.
+This repo contains a [benthos](https://benthos.dev) pipeline and a javascript parser that allow for creating a database of JSON from OSCI publication manifest (.opf) files. 
 
 ## Features
-
-* Downloads everything necessary to recreate the publication content in a CMS
-* Transforms markup-embedded OSCI data (eg, figures, image layers, footnotes, and TOC) into JSON
+* Each .opf URL listed in a YAML file is fetched, given a package-scoped URI, transformed a bit, and then streamed into a sqlite database.
+* Fetched URLs are locally cached
+* Transforms markup-embedded OSCI data (figures, image layers, footnotes, and table of contents targets) into JSON
 
 ## Overview
 
-The pipeline itself is composed of a `benthos` pipeline that takes OSCI epub `.opf` package URLs as inputs and processes them in stages to download and unpack the entire publication and add some useful JSON metadata.
+The pipeline takes OSCI epub `.opf` package URLs as inputs and processes them in stages to download and unpack the entire publication and add some useful JSON metadata.
 
-Each stage of the pipeline receives a JSON message as its input (starting with a message like `{"renoir": "http://example.org/publication/renoirart/package.opf"}`, modifies the message or fetches more data to attach to the message, and emits that to the next processor. At the end the messages are streamed into a sqlite3 database for review and migration to the target CMS.   
+Each stage of the pipeline:
+- Receives a JSON message as its input (eg, `{"renoir": "http://example.org/publication/renoirart/package.opf"}`
+- Modifies the message or fetches more data to attach to the message
+- Emits that to the next processor. 
 
-When the pipeline runs, the following happens in batches of message streams:
+The final stage streams these messages into a database, using transformed JSON properties as columns alongside a bulk `data` column for the whole message.
+
+When the pipeline runs, an .opf URL is processed through these stages:
 - Fetch the `.opf` package URL
-- Turn the returned XML into JSON
-- Grab some package metadata for the publication (title, identifier URN, etc)
-- "Unarchive" the manifest's `spine` contents so they are treated as messages of their own in the processor.
+- Parse the returned opf XML into JSON
+- Store publication metadata (title, identifier URN, etc) into properties (names.title, etc)
+- "Unarchive" the manifest's `spine` contents so they are treated as messages of their own in the processor
 - Fetch each of the `spine` items and cache the response in `data/osci_url_cache.sqlite3`
-- Process each message according to its type (TOC, contribution, entry, etc) and provide JSON data structures for data embedded in OSCI as markup (eg, figure@data-options tags that carry figure crop boxes)
+- Pass the raw HTML from the document to a javascript-based HTML parser (`scripts/parse-osci.js`) to process each message's embedded HTML data according to its type (TOC, contribution, entry, etc)
 - Insert into a database at `output/migration.sqlite3`
 - TODO: A migration script transforms the single-table `documents` table into CMS-aligned tables w/ FKs, blocks, etc.
 
 ## Requirements
 
-- Benthos 4.26.0 (this is a hard requirement r/n: 4.27.0 adds some YAML strictness--FIXME!)
+- Benthos 4.26.0 (though likely works with any 4.26.0+ release)
 - node 21.7.3 (probably works with anything v18+)
 - npm 10.5.0 (though probably works with earlier)
 
@@ -39,7 +44,7 @@ When the pipeline runs, the following happens in batches of message streams:
 ```shell
 # Update homebrew + install benthos binary
 brew update
-brew install benthos@4.26.0
+brew install benthos
 ```
 
 If you need to use the pipline in an individual directory where you have execute permissions, in a container, etc, see [their install guide](https://www.benthos.dev/docs/guides/getting_started) for more info on install via `curl`, `asdf`, `docker`, etc.
