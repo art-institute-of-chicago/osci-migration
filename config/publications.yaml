@@ -1,0 +1,28 @@
+publications:
+  - id: whistler_linkedvisions
+    package_url: https://publications.artic.edu/whistler/api/epub/linkedvisions/package.opf
+    reader_url: https://publications.artic.edu/whistler/reader/linkedvisions
+  - id: monet
+    package_url: https://publications.artic.edu/monet/api/epub/paintingsanddrawings/package.opf
+    reader_url: https://publications.artic.edu/monet/reader/paintingsanddrawings
+  - id: gauguin
+    package_url: https://publications.artic.edu/gauguin/api/epub/gauguinart/package.opf
+    reader_url: https://publications.artic.edu/gauguin/reader/gauguinart
+  - id: modernseries2
+    package_url: https://publications.artic.edu/modernseries2/api/epub/go/package.opf
+    reader_url: https://publications.artic.edu/modernseries2/reader/go
+  - id: renoir
+    package_url: https://publications.artic.edu/renoir/api/epub/paintingsanddrawings/package.opf
+    reader_url: https://publications.artic.edu/renoir/reader/paintingsanddrawings
+  - id: romanart
+    package_url: https://publications.artic.edu/roman/api/epub/romanart/package.opf
+    reader_url: https://publications.artic.edu/roman/reader/romanart
+  - id: whistlerart
+    package_url: https://publications.artic.edu/whistlerart/api/epub/paintingsanddrawings/package.opf
+    reader_url: https://publications.artic.edu/whistlerart/reader/paintingsanddrawings
+  - id: caillebotte
+    package_url: https://publications.artic.edu/caillebotte/api/epub/paintingsanddrawings/package.opf
+    reader_url: https://publications.artic.edu/caillebotte/reader/paintingsanddrawings
+  - id: pissarro
+    package_url: https://publications.artic.edu/pissarro/api/epub/paintingsandpaper/package.opf
+    reader_url: https://publications.artic.edu/pissarro/reader/paintingsandpaper

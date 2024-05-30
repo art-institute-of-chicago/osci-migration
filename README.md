@@ -1,100 +1,98 @@
 ![Art Institute of Chicago](https://raw.githubusercontent.com/Art-Institute-of-Chicago/template/master/aic-logo.gif)
 
-# Name of Project
-> Additional Sub-Title If Necessary
+# OSCI Migration Tooling
 
-Summary of the project. This is the first thing you read when you view this
-project. This is a great place to summarize the goals or intentions of this
-project. Generally speaking, this section is optional, but is a nice way to
-get a snapshot of what this project is about.
-
-Also include information on the maturity of the project, like when it was
-launched, what its current production environment is like, and who it is
-maintained by.
+This repo contains a [benthos](https://benthos.dev) pipeline and a javascript parser that allow for creating a database of JSON from OSCI publication manifest (.opf) files. 
 
 ## Features
-
-What are all the bells and whistles that are significant or unique to this project?
-
-* What's the main functionality
-* What new thing does this project provide?
-* What unique feature does this project include?
+* Each .opf URL listed in a YAML file is fetched, given a package-scoped URI, transformed a bit, and then streamed into a sqlite database.
+* Fetched URLs are locally cached
+* Transforms markup-embedded OSCI data (figures, image layers, footnotes, and table of contents targets) into JSON
 
 ## Overview
 
-Describe the architecture in which this project fits, and point to any other repos
-that make up the full stack of software. Describe how each piece fits
-together.
+The pipeline takes OSCI epub `.opf` package URLs as inputs and processes them in stages to download and unpack the entire publication and add some useful JSON metadata.
+
+Each stage of the pipeline:
+- Receives a JSON message as its input (eg, `{"renoir": "http://example.org/publication/renoirart/package.opf"}`
+- Modifies the message or fetches more data to attach to the message
+- Emits that to the next processor. 
+
+The final stage streams these messages into a database, using transformed JSON properties as columns alongside a bulk `data` column for the whole message.
+
+When the pipeline runs, an .opf URL is processed through these stages:
+- Fetch the `.opf` package URL
+- Parse the returned opf XML into JSON
+- Store publication metadata (title, identifier URN, etc) into properties (names.title, etc)
+- "Unarchive" the manifest's `spine` contents so they are treated as messages of their own in the processor
+- Fetch each of the `spine` items and cache the response in `data/osci_url_cache.sqlite3`
+- Pass the raw HTML from the document to a javascript-based HTML parser (`alignments/parse-osci.js`) to process each message's embedded HTML data according to its type (TOC, contribution, entry, etc)
+- Insert into a database at `output/migration.sqlite3`
+- TODO: A migration script transforms the single-table `documents` table into CMS-aligned tables w/ FKs, blocks, etc.
 
 ## Requirements
 
-List any and all requirements, included hardware, server software, and third-party
-libraries.
+- Benthos 4.26.0 (though likely works with any 4.26.0+ release)
+- node 21.7.3 (probably works with anything v18+)
+- npm 10.5.0 (though probably works with earlier)
+- python 3.X (for review app dev server)
 
 ## Installing
 
-A quick introduction of the minimal setup you need to get a hello world up and
-running.
+- Install benthos
+`benthos` installs as a single static binary, either in a location globally on your machine or in your proejct directory. To install via hombrew:
 
 ```shell
-# Comment your code
-packagemanager install aic-project
-
-# Descibe in brief what each step does
-aic-project start
-
-# Or why this step is required
-aic-project some-setup-function-if-necessary
+# Update homebrew + install benthos binary
+brew update
+brew install benthos
 ```
 
-Here you should say more thoroughly what actually happens when you execute the code above.
+If you need to use the pipline in an individual directory where you have execute permissions, in a container, etc, see [their install guide](https://www.benthos.dev/docs/guides/getting_started) for more info on install via `curl`, `asdf`, `docker`, etc.
+
+- Install javascript dependencies
+Run `npm install` in the project root directory
 
 ## Developing
 
-Here is a brief intro about what a developer must do in order to start developing
-the project further:
+Run the pipeline:
 
 ```shell
-git clone https://github.com/your/aic-project.git
-cd aic-project/
-packagemanager install
+git clone https://github.com/art-institute-of-chicago/osci-migration.git
+cd osci-migration/
+brew install benthos # If not already installed
+npm install # If not run once already
+benthos -c config/migration.yaml
 ```
 
-And state what happens step-by-step.
+This will:
+- Clone the migration repo
+- Install benthos
+- Run the pipeline to unpackage OSCI publications and put a database with the results in `output/migrated.sqlite3`
 
-If a developer needs to copy a sample configuration file to get their local instance
-going, provide the most minimum effort needed here. More details on configuration can
-be included in a later section on [Configuration](#configuration).
+For more on the actual pipeline stages and how to modify it, see [Configuration](#configuration).
 
-### Building
-
-If your project needs some additional steps for the developer to build the
-project after some code changes, state them here:
-
+Finally, check the migration output by copying the migration into review app and building it:
 ```shell
-./configure
-make
-make install
+cp output/migration.sqlite3 admin/src/data/
+sqlite3 admin/src/data/migration.sqlite3 "pragma journal_mode=delete"
+cd admin
+npm install
+npm run build
+python3 -m http.server -d dist 8080
 ```
 
-Here again you should state what actually happens when the code above gets
-executed.
+### Running
 
-### Deploying / Publishing
+- TODO: Describe any settable env vars that make things happen (eg, LOG_LEVEL, LOG_TYPE, etc)
 
-In case there's some step you have to take that publishes this project to a
-server, here is where to state it.
+## Deploying / Publishing
 
-```shell
-packagemanager deploy aic-project -s server.com -u username -p password
-```
-
-And again you'd need to tell what the previous code actually does.
+- TODO: Describe releases or netlify CI/CD and any ceremony needed to make those happen
 
 ## Configuration
 
-Here you should write what are all of the configurations a user can enter when
-using the project, and which file each config is set if applicable.
+The majority of the pipeline is constructed in `config/migration.yaml` and some bloblang mapping functions in `config/mappings.blobl`.
 
 ### Configuration file path
 

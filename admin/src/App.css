@@ -1,0 +1,13 @@
+@import 'bulma/css/bulma.css';
+
+/* TODO: use scss if we need even one nested class */
+
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.media-content > .content {
+  min-height: 75px;
+}

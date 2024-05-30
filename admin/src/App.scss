@@ -1,0 +1,33 @@
+@use "bulma/sass/utilities/mixins";
+@import 'bulma/bulma.scss';
+
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.media-content > .content {
+  min-height: 75px;
+}
+
+.fig-thumb {
+  max-width: 96px;
+}
+
+// TODO: Rewrite these rules to be responsive and not pixel magic
+.link-col {
+  width: 30px;
+}
+
+.text-col {
+  @include mixins.desktop {
+    min-width: 350px;  
+  }
+}
+
+th, td {
+  min-width: 25px;
+  max-width: 250px;
+}
+
