@@ -72,7 +72,7 @@ This will:
 
 For more on the actual pipeline stages and how to modify it, see [Configuration](#configuration).
 
-Check the migration output by copying the migration into review app and building it:
+Finally, check the migration output by copying the migration into review app and building it:
 ```shell
 cp output/migration.sqlite3 admin/src/data/
 sqlite3 admin/src/data/migration.sqlite3 "pragma journal_mode=delete"

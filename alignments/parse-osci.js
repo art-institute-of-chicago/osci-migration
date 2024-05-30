@@ -15,7 +15,7 @@ const materializeType = (dom) => {
   case 'figure':
     return 'figure'
   case 'navigation':
-    // FIXME: Maybe should check nav @epub:type='toc' instead?
+    // TODO: Maybe should check nav @epub:type='toc' instead?
     return 'toc'
   }
 
@@ -95,7 +95,7 @@ const parseFiguresSection = (doc) => {
 
       // TODO: `figure_type` == html (or whatever it is) should skip some of this
 
-      const thumbnail = fig.querySelector('img.thumbnail').src
+      const thumbnail = fig.querySelector('img.thumbnail')?.src
 
       const layerObject = fig.querySelector('object')
       const figure_layer_url = layerObject?.getAttribute('data')
