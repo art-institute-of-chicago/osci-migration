@@ -35,6 +35,7 @@ When the pipeline runs, an .opf URL is processed through these stages:
 - Benthos 4.26.0 (though likely works with any 4.26.0+ release)
 - node 21.7.3 (probably works with anything v18+)
 - npm 10.5.0 (though probably works with earlier)
+- python 3.X (for review app dev server)
 
 ## Installing
 
@@ -70,6 +71,17 @@ This will:
 - Run the pipeline to unpackage OSCI publications and put a database with the results in `output/migrated.sqlite3`
 
 For more on the actual pipeline stages and how to modify it, see [Configuration](#configuration).
+
+Check the migration output by copying the migration into review app and building it:
+```shell
+cp output/migration.sqlite3 admin/src/data/
+sqlite3 admin/src/data/migration.sqlite3 "pragma journal_mode=delete"
+cd admin
+npm install
+npm run build
+python3 -m http.server -d dist 8080
+```
+
 ### Running
 
 - TODO: Describe any settable env vars that make things happen (eg, LOG_LEVEL, LOG_TYPE, etc)
