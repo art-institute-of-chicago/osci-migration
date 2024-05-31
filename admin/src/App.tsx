@@ -129,12 +129,30 @@ function SelectedTextView(props: any) {
     const parser = new DOMParser()
     const sectionDoc = parser.parseFromString(html,'text/html')
 
-    // TODO: Pick a nice mod number (3?) and rotate the block size by it
+    // TODO: Pick a nice mod number (3?) and rotate the block size by it (circuitbreak by figure presence)
     const blocks = Array.from(sectionDoc.body.children).reduce( (blocks: any[],child: any) => {
 
-      const footnoteRefs = Array.from(child.querySelectorAll('a[href^="#fn-"]')).map( (fn: any) => {
-        const url = new URL(fn.href)
-        return url.hash.replace(/^#/,'')  
+      // TODO: adjust links without hostnames to be relative w/in pub
+      // TODO: cross-publication links (if any) need surfaced in parse stage and handled as FK-ish
+      child.querySelectorAll('a[href^="#fn-"]').forEach( (fnRef: HTMLAnchorElement) => {
+
+        const url = new URL(fnRef.href)
+        const fnoteId = url.hash.replace(/^#/,'')  
+
+        const note = footnotes.find( (n: any) => n.id===fnoteId )
+        if (note) {
+
+          // Footnotes arrive <p>-wrapped, so grok their content and wrap with [ref] delimiters
+          const templ = document.createElement('template')
+          templ.innerHTML = note.noteHtml
+
+          const parNode = templ.content.querySelector('p')
+          // NB: Notes have embedded markup so this must walk `childNodes`
+          const noteNodes = Array.from(parNode?.childNodes?.values() ?? [])
+
+          fnRef.replaceWith('[ref]',...noteNodes,'[/ref]')
+
+        }
       })
 
       const figureRefs = Array.from(child.querySelectorAll('a[href^="#fig-"]')).map( (fg: any) => {
@@ -142,12 +160,11 @@ function SelectedTextView(props: any) {
         return url.hash.replace(/^#/,'')  
       })
 
-      const blockNotes = footnoteRefs.map( fnote => footnotes.find( (fn: any) => fn.id===fnote ) )
       const blockFigs: any[] = figureRefs.filter( (fig: any) => figures.some( (f: any) => f.id===fig && f.position !== 'plate' && f.position !== 'platefull' ) ).map( fig => {
         return { blockType: 'figure', ...figures.find( (f: any) => f.id===fig ) }
       })
 
-      return [ ...blocks, { blockType: 'text', html: child.outerHTML, notes: blockNotes }, ...blockFigs ]   
+      return [ ...blocks, { blockType: 'text', html: child.outerHTML }, ...blockFigs ]   
 
     },[ ])
 
@@ -155,23 +172,6 @@ function SelectedTextView(props: any) {
       id, blocks
     }    
 
-  }
-
-  const footnotesView = (notes: any) => {
-
-    const formatNotes = () => {
-      return { __html: notes.map( (n: any) => `<span className='is-text-weight-semibold' id='${n.id}'>${n.index}</span>${n.noteHtml}` ).join('<br/>') }
-    }
-
-    return <article className='media'>
-              <div className='media-left'>
-              </div>
-              <div className='media-content'>
-                <div className='content' dangerouslySetInnerHTML={formatNotes()} >
-                </div>
-                {/* TODO: Return to ref link */}
-              </div>
-            </article>
   }
 
   const figureView = (fig: any) => {
@@ -208,6 +208,7 @@ function SelectedTextView(props: any) {
 
     const { id, blocks } = parseSection(sect, fnotes ?? [], figs ?? [])
 
+    // TODO: Maybe ditch "Section: blah" and just presence the anchors
     return <section className={`section ${id}-section`}>
           <h4 className='title'>Section:&nbsp;{id}</h4>
             { 
@@ -218,7 +219,7 @@ function SelectedTextView(props: any) {
                       <div className='media-content'>
                         <div className='content' dangerouslySetInnerHTML={{__html: b.html}} >
                         </div>
-                        { b.notes.length > 0 ? footnotesView(b.notes) : '' }
+                        { /* b.notes.length > 0 ? footnotesView(b.notes) : '' */ }
                       </div>
                     </article>
                   case 'figure':
@@ -241,6 +242,7 @@ function SelectedTextView(props: any) {
                               return figureView({ blockType: 'figure', ...b }) 
                             })
 
+  // TODO: Lay out any figures that haven't been ref'd at the end of sections
 
   return <div className={`selected-text-view container ${ props.isHidden ? 'is-hidden' : '' }`}>
             <h2 className='title'>{title}</h2>
