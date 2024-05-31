@@ -123,36 +123,59 @@ function SelectedTextView(props: any) {
 
   const { id, url, title, error, sections: sects, footnotes: fnotes, figures: figs } = props.data
 
-  const sections = ( sects ?? [] ).map( (sect: any) => {
+  const parseSection = (section: any, footnotes: any, figures: any) => {
+    const {id, html } = section
 
-    const { id, html } = sect
+    const parser = new DOMParser()
+    const sectionDoc = parser.parseFromString(html,'text/html')
 
-    return <section className={`section ${id}-section`}>
-      <article className='media'>
-        <div className='media-content'>
-          <h4 className='title'>Section:&nbsp;{id}</h4>
-          <div className='content' dangerouslySetInnerHTML={{ __html: html }}>            
-          </div>
-        </div>
-      </article>
-    </section>
-  })
+    // TODO: Pick a nice mod number (3?) and rotate the block size by it
+    const blocks = Array.from(sectionDoc.body.children).reduce( (blocks: any[],child: any) => {
 
-  const footnotes = ( fnotes ?? [] ).map( (fn: any) => {
+      const footnoteRefs = Array.from(child.querySelectorAll('a[href^="#fn-"]')).map( (fn: any) => {
+        const url = new URL(fn.href)
+        return url.hash.replace(/^#/,'')  
+      })
 
-    return <article className='media' id={fn.id}>
+      const figureRefs = Array.from(child.querySelectorAll('a[href^="#fig-"]')).map( (fg: any) => {
+        const url = new URL(fg.href)
+        return url.hash.replace(/^#/,'')  
+      })
+
+      const blockNotes = footnoteRefs.map( fnote => footnotes.find( (fn: any) => fn.id===fnote ) )
+      const blockFigs: any[] = figureRefs.filter( (fig: any) => figures.some( (f: any) => f.id===fig && f.position !== 'plate' && f.position !== 'platefull' ) ).map( fig => {
+        return { blockType: 'figure', ...figures.find( (f: any) => f.id===fig ) }
+      })
+
+      return [ ...blocks, { blockType: 'text', html: child.outerHTML, notes: blockNotes }, ...blockFigs ]   
+
+    },[ ])
+
+    return {
+      id, blocks
+    }    
+
+  }
+
+  const footnotesView = (notes: any) => {
+
+    const formatNotes = () => {
+      return { __html: notes.map( (n: any) => `<span className='is-text-weight-semibold' id='${n.id}'>${n.index}</span>${n.noteHtml}` ).join('<br/>') }
+    }
+
+    return <article className='media'>
               <div className='media-left'>
-                <span className='is-text-weight-semibold'>{fn.index}</span>
               </div>
               <div className='media-content'>
-                <div className='content' dangerouslySetInnerHTML={{ __html: fn.noteHtml}}>
+                <div className='content' dangerouslySetInnerHTML={formatNotes()} >
                 </div>
                 {/* TODO: Return to ref link */}
               </div>
             </article>
-  })
+  }
 
-  const figures = ( figs ?? [] ).map( (fig: any) => {
+  const figureView = (fig: any) => {
+
     const { id, thumbnail, fallback_url, figure_type, order, position, title: _, aspect, options, columns, caption_html } = fig
     return <article className='media' id={id}>
               <div className='media-left'>
@@ -178,7 +201,46 @@ function SelectedTextView(props: any) {
                 </div>
               </div>
     </article>
+
+  }
+
+  const sections = ( sects ?? [] ).map( (sect: any) => {
+
+    const { id, blocks } = parseSection(sect, fnotes ?? [], figs ?? [])
+
+    return <section className={`section ${id}-section`}>
+          <h4 className='title'>Section:&nbsp;{id}</h4>
+            { 
+              blocks.map( b => {
+                switch (b.blockType) {
+                  case 'text':
+                    return <article className='media'>
+                      <div className='media-content'>
+                        <div className='content' dangerouslySetInnerHTML={{__html: b.html}} >
+                        </div>
+                        { b.notes.length > 0 ? footnotesView(b.notes) : '' }
+                      </div>
+                    </article>
+                  case 'figure':
+                    if ('id' in b) {
+                      return figureView(b)
+                    }
+
+                }
+              }) 
+            }            
+    </section>
   })
+
+  const figures = ( figs ?? [] ).map( (fig: any) => figureView(fig))
+
+  // Figures with position==plate or position==platefull should be at the top of every blocks
+  // TODO: Present plate vs platefull differently (check target block model options)
+  const plateFigs = ( figs ?? [] ).filter( (f: any) => f.position === "plate" || f.position === "platefull" )
+                            .map( (b: any) => { 
+                              return figureView({ blockType: 'figure', ...b }) 
+                            })
+
 
   return <div className={`selected-text-view container ${ props.isHidden ? 'is-hidden' : '' }`}>
             <h2 className='title'>{title}</h2>
@@ -194,11 +256,10 @@ function SelectedTextView(props: any) {
               </div>
             </article>
 
+            {plateFigs}
+
             {sections}
-            <section className={`section footnotes-section ${footnotes.length > 0 ? '' : 'is-hidden' }`}>
-              <h4 className='title'>Section:&nbsp;footnotes</h4>
-                {footnotes}
-            </section>
+
             <section className={`section figures-section ${figures.length > 0 ? '' : 'is-hidden'}`}>
               <h4 className='title'>Section:&nbsp;figures</h4>
                 {figures}
