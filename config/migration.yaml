@@ -79,6 +79,7 @@ pipeline:
       # - Attempts to parse as HTML, copies _body_text to _body_html if so, stores error on _meta._body_parse_error if not
       branch:
         request_map: |
+          meta ident = this._id
           meta format = this._format
           meta url = this._url 
           root = if this._url != null { this._url } else { deleted() }
@@ -124,11 +125,29 @@ pipeline:
                             operator: to_json
                         # NB!! We're using xml->json only to catch the HTML parse error! 😿
                         - catch:
-                            - log:
-                                level: WARN
-                                message: 'Parsing HTML for ${! metadata("url") } in ${! metadata("pkg_name") } failed! Check _body_parse_error for this document'
-                            - mapping: |
-                                root._parse_error = error()
+                            - mapping: meta parse_error = error()
+                            # Attempt to recover from HTML parse errors by fetching (manually) cured HTML from data/errata.sqlite3
+                            - sql_select:
+                                driver: sqlite
+                                dsn: file:data/errata.sqlite3?mode=ro
+                                table: 'source_html'
+                                columns: [ 'body' ]
+                                where: id = ?
+                                args_mapping: '[ metadata("ident") ]'
+                                init_statement: 'PRAGMA journal_mode=WAL'
+                            - switch:
+                                # Success replace body text metadata with the cured body
+                                - check: this.length() > 0
+                                  processors:
+                                    - mapping: |
+                                        meta body_text = this.index(0).body 
+                                        root._parse_error = deleted()
+                                # Failure, set the body error metadata
+                                - processors:
+                                    - mapping: 'root._parse_error = metadata("parse_error")'
+                                    - log:
+                                        level: WARN
+                                        message: 'Parsing HTML for ${! metadata("url") } in ${! metadata("pkg_name") } failed! Check _body_parse_error for this document'
                       result_map: |
                         root._meta._body_parse_error = this._parse_error | deleted()
                         root._body_html = if !this.exists("_parse_error") { metadata("body_text") } else { deleted() }
