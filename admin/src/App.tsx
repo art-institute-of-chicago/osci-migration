@@ -121,61 +121,10 @@ function SelectedTocView(props: any) {
 
 function SelectedTextView(props: any) {
 
-  const { id, url, title, error, sections: sects, footnotes: fnotes, figures: figs } = props.data
-
-  const parseSection = (section: any, footnotes: any, figures: any) => {
-    const {id, html } = section
-
-    const parser = new DOMParser()
-    const sectionDoc = parser.parseFromString(html,'text/html')
-
-    // TODO: Pick a nice mod number (3?) and rotate the block size by it (circuitbreak by figure presence)
-    const blocks = Array.from(sectionDoc.body.children).reduce( (blocks: any[],child: any) => {
-
-      // TODO: adjust links without hostnames to be relative w/in pub
-      // TODO: cross-publication links (if any) need surfaced in parse stage and handled as FK-ish
-      child.querySelectorAll('a[href^="#fn-"]').forEach( (fnRef: HTMLAnchorElement) => {
-
-        const url = new URL(fnRef.href)
-        const fnoteId = url.hash.replace(/^#/,'')  
-
-        const note = footnotes.find( (n: any) => n.id===fnoteId )
-        if (note) {
-
-          // Footnotes arrive <p>-wrapped, so grok their content and wrap with [ref] delimiters
-          const templ = document.createElement('template')
-          templ.innerHTML = note.noteHtml
-
-          const parNode = templ.content.querySelector('p')
-          // NB: Notes have embedded markup so this must walk `childNodes`
-          const noteNodes = Array.from(parNode?.childNodes?.values() ?? [])
-
-          fnRef.replaceWith('[ref]',...noteNodes,'[/ref]')
-
-        }
-      })
-
-      const figureRefs = Array.from(child.querySelectorAll('a[href^="#fig-"]')).map( (fg: any) => {
-        const url = new URL(fg.href)
-        return url.hash.replace(/^#/,'')  
-      })
-
-      const blockFigs: any[] = figureRefs.filter( (fig: any) => figures.some( (f: any) => f.id===fig && f.position !== 'plate' && f.position !== 'platefull' ) ).map( fig => {
-        return { blockType: 'figure', ...figures.find( (f: any) => f.id===fig ) }
-      })
-
-      return [ ...blocks, { blockType: 'text', html: child.outerHTML }, ...blockFigs ]   
-
-    },[ ])
-
-    return {
-      id, blocks
-    }    
-
-  }
+  const { id, url, title, error, sections: sects, figures: figs } = props.data
 
   const figureView = (fig: any) => {
-
+    console.log(fig)
     const { id, thumbnail, fallback_url, figure_type, order, position, title: _, aspect, options, columns, caption_html } = fig
     return <article className='media' id={id}>
               <div className='media-left'>
@@ -206,13 +155,12 @@ function SelectedTextView(props: any) {
 
   const sections = ( sects ?? [] ).map( (sect: any) => {
 
-    const { id, blocks } = parseSection(sect, fnotes ?? [], figs ?? [])
-
+    const { id, blocks } = sect
     // TODO: Maybe ditch "Section: blah" and just presence the anchors
     return <section className={`section ${id}-section`}>
           <h4 className='title'>Section:&nbsp;{id}</h4>
             { 
-              blocks.map( b => {
+              ( blocks ?? [] ).map( (b: any) => {
                 switch (b.blockType) {
                   case 'text':
                     return <article className='media'>
@@ -223,10 +171,10 @@ function SelectedTextView(props: any) {
                       </div>
                     </article>
                   case 'figure':
-                    if ('id' in b) {
-                      return figureView(b)
-                    }
-
+                    // console.log(b)
+                    return figureView(b)
+                  default:
+                    return ''
                 }
               }) 
             }            
@@ -235,15 +183,8 @@ function SelectedTextView(props: any) {
 
   const figures = ( figs ?? [] ).map( (fig: any) => figureView(fig))
 
-  // Figures with position==plate or position==platefull should be at the top of every blocks
-  // TODO: Present plate vs platefull differently (check target block model options)
-  const plateFigs = ( figs ?? [] ).filter( (f: any) => f.position === "plate" || f.position === "platefull" )
-                            .map( (b: any) => { 
-                              return figureView({ blockType: 'figure', ...b }) 
-                            })
-
-  // TODO: Lay out any figures that haven't been ref'd at the end of sections
-
+  // TODO: Lay out any figures that haven't been ref'd at the end of sections?
+  // console.log(props.data)
   return <div className={`selected-text-view container ${ props.isHidden ? 'is-hidden' : '' }`}>
             <h2 className='title'>{title}</h2>
             <h3 className='subtitle'>{id}</h3>
@@ -257,8 +198,6 @@ function SelectedTextView(props: any) {
                 {error}
               </div>
             </article>
-
-            {plateFigs}
 
             {sections}
 
@@ -285,7 +224,12 @@ function SelectedEntityView(props: any) {
 
   useEffect(() => {
     if (!ready) { return }
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `select id, title, type, package, error, data->>'$._url' as url, data->>'$.footnotes' as footnotes, data->>'$.sections' as sections, data->>'$.figures' as figures from documents where data->>'$._url'=?`, bind: [ props.selectedText ?? props.selectedToc ] }})     
+
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `SELECT text_id as id, title, 'text' as type, package, error, data->>'$._url' AS url, data->>'$.sections' as sections 
+                                                                                                                              FROM texts where data->>'$._url'=?
+                                                                                                                              UNION
+                                                                                                                              SELECT toc_id as id, title, 'toc' as type, package, error, data->>'$._url' AS url, data->>'$.sections' as sections 
+                                                                                                                              FROM tocs where data->>'$._url'=?`, bind: [ props.selectedText ?? props.selectedToc, props.selectedText ?? props.selectedToc ] }})     
   },[ready,props.selectedText,props.selectedToc])
 
   const msgResponder = (event: any) => {
@@ -295,22 +239,21 @@ function SelectedEntityView(props: any) {
         if ( isResultTerminator(msg) ) { 
           return
         }
-        const { id, title, error, type, package: packageId, sections: sect, footnotes: fnotes, url, figures: figs } = msg.row
 
-        const sections = JSON.parse(sect)
-        const footnotes = JSON.parse(fnotes)
-        const figures = JSON.parse(figs)
+        const { id, title, error, type, package: packageId, sections: sect, url } = msg.row
+
+        const sections = JSON.parse(sect ?? '[]')
         setEntityType(type)
-        setData({id, title, error, package: packageId, sections, footnotes, figures, url })
+        setData({id, title, error, package: packageId, sections, url })
         break
       default:
         return
       }
   }
-
+  // console.log(entityType)
   return <div className={`box selected-record ${props.className}`}>
             <SelectedTocView isHidden={ entityType !== 'toc' } data={data} setSelected={props.setSelected} />
-            <SelectedTextView isHidden={ entityType !== 'text' && entityType !== null } data={data} />
+            <SelectedTextView isHidden={ entityType !== 'text' } data={data} />
           </div>
 }
 
@@ -323,7 +266,7 @@ function FiguresView(props: any) {
   const [nextRows,setNextRows] = useState([] as any)
 
   const [currentPage,setCurrentPage] = useState(0)
-  const [sortColumn,setSortColumn] = useState('id')
+  const [sortColumn,setSortColumn] = useState('layer_id')
   const [sortOrder,setSortOrder] = useState('ASC')
   const [facet,setFacet] = useState(null as any)
   const [selectedFacet,setSelectedFacet] = useState(null as any)
@@ -340,18 +283,18 @@ function FiguresView(props: any) {
 
     if (!ready) { return }
     if (!facet) {
-      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-facet', rowMode: 'object', sql: `select distinct package as pkg from documents where type='figure'`, bind: [  ] }})     
+      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-facet', rowMode: 'object', sql: `select distinct package as pkg from figure_layers`, bind: [  ] }})     
     }
 
     const offset = Math.min(currentPage*25,props.count)
 
     // TODO: Ease the query params here so we can select on empty package and still get all results
     if (selectedFacet) {
-      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-rows', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, title, error from documents where type='figure' and package=? order by ${sortColumn} ${sortOrder} limit 25 offset ?`, bind: [ selectedFacet, offset ] }})     
+      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-rows', rowMode: 'object', sql: `select layer_id, package, data->>'$._url' as url, title, error from figure_layers where package=? order by ${sortColumn} ${sortOrder} limit 25 offset ?`, bind: [ selectedFacet, offset ] }})     
       return
     }
 
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-rows', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, title from documents where type='figure' order by ${sortColumn} ${sortOrder} limit 25 offset ?`, bind: [ offset ] }})     
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-rows', rowMode: 'object', sql: `select layer_id, package, data->>'$._url' as url, title, error from figure_layers order by ${sortColumn} ${sortOrder} limit 25 offset ?`, bind: [ offset ] }})     
 
   },[ready,currentPage,sortColumn,sortOrder,selectedFacet])
 
@@ -406,11 +349,11 @@ function FiguresView(props: any) {
     setSelectedFacet(facet)
 
     if (facet){      
-      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from documents where type='figure' and package=?`, bind: [ facet ] }})
+      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from figure_layers where package=?`, bind: [ facet ] }})
       return
     }
 
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from documents where type='figure'` }})
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from figure_layers` }})
 
   }
 
@@ -437,14 +380,14 @@ function FiguresView(props: any) {
             <table className="table is-bordered is-striped is-hoverable">
               <thead>
                 <tr>
-                  <th><a href="#" onClick={ (e) => handleSortClick('id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'id' } order={sortOrder} >id</SortedHeaderLabel></a></th>
+                  <th><a href="#" onClick={ (e) => handleSortClick('layer_id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'layer_id' } order={sortOrder} >layer_id</SortedHeaderLabel></a></th>
                   <th><a href="#" onClick={ (e) => handleSortClick('package',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'package' } order={sortOrder} >package</SortedHeaderLabel></a></th>
                   <th>raw_link</th>
                   <th>title</th>
                 </tr>
               </thead>
               <tfoot>
-                  <th>id</th>
+                  <th>layer_id</th>
                   <th>package</th>
                   <th>raw_link</th>
                   <th>title</th>
@@ -453,7 +396,7 @@ function FiguresView(props: any) {
                 { 
                   rows.map( (r: any) => {
                     return <tr>
-                            <td>{r.id}</td>
+                            <td>{r.layer_id}</td>
                             <td>{r.package}</td>
                             <td><a href={r.url} target="_blank">View Raw HTML/XML</a></td>
                             <td>{r.title}</td>
@@ -479,7 +422,7 @@ function TextsView(props: any) {
   const [nextRows,setNextRows] = useState([] as any)
 
   const [currentPage,setCurrentPage] = useState(0)
-  const [sortColumn,setSortColumn] = useState('id')
+  const [sortColumn,setSortColumn] = useState('text_id')
   const [sortOrder,setSortOrder] = useState('ASC')
   const [facet,setFacet] = useState(null as any)
   const [selectedFacet,setSelectedFacet] = useState(null as any)
@@ -496,18 +439,18 @@ function TextsView(props: any) {
 
     if (!ready) { return }
     if (!facet) {
-      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-facet', rowMode: 'object', sql: `select distinct package as pkg from documents where type='text' or type is null`, bind: [  ] }})     
+      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-facet', rowMode: 'object', sql: `select distinct package as pkg from texts`, bind: [  ] }})     
     }
 
     const offset = Math.min(currentPage*25,props.count)
 
     // TODO: Ease the query params here so we can select on empty package and still get all results
     if (selectedFacet) {
-      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-rows', rowMode: 'object', sql: `select id, package, data->>'$._url' as url, title, error from documents where ( type='text' or type is null ) and ( package=? ) order by ${sortColumn} ${sortOrder} limit 25 offset ?`, bind: [ selectedFacet, offset ] }})     
+      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-rows', rowMode: 'object', sql: `select text_id, package, data->>'$._url' as url, title, error from texts where package=? order by ${sortColumn} ${sortOrder} limit 25 offset ?`, bind: [ selectedFacet, offset ] }})     
       return
     }
 
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-rows', rowMode: 'object', sql: `select id as id, package as package, data->>'$._url' as url, title, error from documents where type='text' or type is null order by ${sortColumn} ${sortOrder} limit 25 offset ?`, bind: [ offset ] }})     
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-rows', rowMode: 'object', sql: `select text_id, package, data->>'$._url' as url, title, error from texts order by ${sortColumn} ${sortOrder} limit 25 offset ?`, bind: [ offset ] }})     
 
   },[ready,currentPage,sortColumn,sortOrder,selectedFacet])
 
@@ -565,11 +508,11 @@ function TextsView(props: any) {
     setSelectedFacet(facet)
 
     if (facet){      
-      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from documents where ( type='text' or type is null ) and package=?`, bind: [ facet ] }})
+      props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from texts where package=?`, bind: [ facet ] }})
       return
     }
 
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from documents where ( type='text' or type is null )` }})
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from texts` }})
 
   }
 
@@ -600,7 +543,7 @@ function TextsView(props: any) {
             <table className="table is-bordered is-striped is-hoverable is-fullwidth is-narrow">
               <thead>
                 <tr>
-                  <th scope='col'><a href="#" onClick={ (e) => handleSortClick('id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'id' } order={sortOrder} >id</SortedHeaderLabel></a></th>
+                  <th scope='col'><a href="#" onClick={ (e) => handleSortClick('text_id',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'text_id' } order={sortOrder} >text_id</SortedHeaderLabel></a></th>
                   <th scope='col'><a href="#" onClick={ (e) => handleSortClick('package',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'package' } order={sortOrder} >package</SortedHeaderLabel></a></th>
                   <th scope='col'>raw_link</th>
                   <th scope='col'><a href="#" onClick={ (e) => handleSortClick('title',e) } ><SortedHeaderLabel showIcon={ sortColumn === 'title' } order={sortOrder} >title</SortedHeaderLabel></a></th>
@@ -610,7 +553,7 @@ function TextsView(props: any) {
               </thead>
               <tfoot>
                 <tr>
-                  <th>id</th>
+                  <th>text_id</th>
                   <th>package</th>
                   <th>raw_link</th>
                   <th>title</th>
@@ -623,7 +566,7 @@ function TextsView(props: any) {
                   rows.map( (r: any) => {
 
                     return <tr>
-                            <td>{r.id}</td>
+                            <td>{r.text_id}</td>
                             <td>{r.package}</td>
                             <td className='link-col'><a href={r.url} target="_blank">View HTML/XML</a></td>
                             <td className='text-col'>{r.title}</td>
@@ -655,7 +598,7 @@ function PublicationsView(props: any) {
     if ( props.dbId === null ) { return }
     props.sqlWorker.addEventListener( "message", (e: any) => msgResponder(e) )
 
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select documents.id, documents.data->>'$._href' as url, documents.title as name, documents.data->>'$._id_urn' as id_urn, json_array_length(documents.data,'$._spine.itemref') as spine_length, documents.data->>'$._toc_url' as toc_url, documents.data->>'$._reader_url' as osci_url, d.id as toc_id from documents left join documents as d on (documents.data->>'$._toc_url')=d.data->>'$._url' where documents.type='osci-package' order by documents.id` }})
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'pubs-rows', rowMode: 'object', sql: `select pub_id as id, publications.data->>'$._href' as url, publications.title as name, publications.data->>'$._id_urn' as id_urn, json_array_length(publications.data,'$._spine.itemref') as spine_length, publications.data->>'$._toc_url' as toc_url, publications.data->>'$._reader_url' as osci_url, toc_id from publications left join tocs on (publications.data->>'$._toc_url')=tocs.data->>'$._url' order by pub_id` }})
 
   },[props.sqlWorker,props.dbId])
 
@@ -923,6 +866,7 @@ function App(props: any) {
     console.log(`db open with id ${dbId}`)
 
     // TODO: If props.urlState !== {} load the items so they can be the navStack
+    // console.log(props.urlNavState)
     if (props.urlNavState.length > 0) {
 
       const tabs = props.urlNavState.filter( (s: any) => s.type === 'tab' )
@@ -931,14 +875,21 @@ function App(props: any) {
       setNavStack(tabs.map( (s: any) => { return {...s, label: tabLabels(s.id) } } ))
 
       if (nodes.length > 0) {
-        sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'nav-state', rowMode: 'object', sql: `select id,type,title as label,data->>'$._url' as url from documents where id in ( ${ nodes.map( () => '?' ).join(', ') } )`, bind: nodes.map( (s: any) => s.id ) }})      
+        const query = `select text_id as id,'text' as type,title as label,data->>'$._url' as url 
+                       from texts 
+                       where text_id in ( ${ nodes.map( () => '?' ).join(', ') } )
+                       select toc_id as id,'toc' as type,title as label,data->>'$._url' as url 
+                       from tocs 
+                       where toc_id in ( ${ nodes.map( () => '?' ).join(', ') } )
+                       `
+        sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'nav-state', rowMode: 'object', sql: query, bind: nodes.concat(nodes).map( (s: any) => s.id ) }})      
       }
 
     }
 
-    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'pubs-count', rowMode: '$count', sql: `select count() as count from documents where type='osci-package'` }})
-    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from documents where type='text' or type is null` }})
-    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from documents where type='figure'` }})
+    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'pubs-count', rowMode: '$count', sql: `select count() as count from publications` }})
+    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'texts-count', rowMode: '$count', sql: `select count() as count from texts` }})
+    sqlWorker.postMessage({type: 'exec', dbId, args: {callback: 'figures-count', rowMode: '$count', sql: `select count() as count from figure_layers` }})
 
   },[dbOpen,dbId])
 
@@ -1006,6 +957,7 @@ function App(props: any) {
   const selectedTextURL = lastNavItem && lastNavItem.type === 'text' ? lastNavItem.url : null
   const selectedTocURL = lastNavItem && lastNavItem.type === 'toc' ? lastNavItem.url : null
 
+  console.log(navStack)
   return (
       <div className="container">
 

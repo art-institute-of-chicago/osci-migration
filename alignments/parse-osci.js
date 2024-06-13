@@ -10,6 +10,12 @@
 
 const { JSDOM } = require('jsdom');
 
+/**
+ * materializeType
+ * @param {JSDOM} dom - JSDOM object, usually parsed from a string
+ * 
+ * Returns a string representing the type for this document
+ */ 
 const materializeType = (dom) => {
   switch ( dom.window.document.title.trim().toLowerCase() ) {
   case 'figure':
@@ -22,6 +28,12 @@ const materializeType = (dom) => {
   return 'text'
 }
 
+/**
+ * parseFootnotes
+ * @param {JSDOM.Document} doc - Deserialized HTML document, usually from JSDOM.window.document
+ *   
+ * Returns an array of objects representing each footnote from an OSCI text
+ */ 
 const parseFootnotes = (doc) => {
 
   let footnotes = []
@@ -47,13 +59,18 @@ const parseFootnotes = (doc) => {
   return footnotes
 }
 
-// OSCI uses `section` tags to identify page sub-heads, so expose those minus `footnotes` and `figures`
-const parseTextSections = (doc) => {
+/**
+ * parseTextSections
+ * @param {JSDOM.Document} doc - Deserialized HTML document, usually from JSDOM.window.document
+ * 
+ * Returns an array of objects representing each section (with id, text, html, and blocks keys) from an OSCI text
+ */ 
+const parseTextSections = (doc,footnotes,figures) => {
 
   const sects = doc.querySelectorAll('section')
   let result = []
 
-  sects.forEach( (s) => {
+  sects.forEach( (s,i) => {
 
     // TODO: Just put these in the same place
     if (s.id === 'footnotes' || s.id === 'figures') { 
@@ -64,36 +81,46 @@ const parseTextSections = (doc) => {
     const text = s.textContent
 
     // TODO: Consider parsing further to handle footnote, figure refs, and internal pub links (eg, /reader/* -> /reader/* )
-    // TODO: Consider stripping embedded @style attributes (are these only style="text-align: left"??)
+    // TODO: Consider stripping embedded @style attributes
     const html = s.innerHTML
 
-    result.push({id,text,html})
+    const blocks = parseBlocks({id,html,order: i},footnotes,figures)
+
+    result.push({id,text,html,blocks})
 
   })
 
   return result
 }
 
+// * OSCI uses `section` tags to identify page sub-heads, so expose those minus `footnotes` and `figures`
+/**
+* parseFiguresSection
+* @param {JSDOM.Document} doc - Deserialized HTML document, usually from JSDOM.window.document
+*   
+* Returns an array of objects representing each figure in an OSCI text
+*/ 
 const parseFiguresSection = (doc) => {
 
   const sect = doc.getElementById('figures')
   let result = []
 
   if (sect) {
+
     const figs = sect.querySelectorAll('figure')
     figs.forEach( (fig) => {
 
       const id = fig.id
       const title = fig.title
       const position = fig.dataset.position
-      const columns = fig.dataset.columns // FIXME: Number()
+      const columns = fig.dataset.columns // FIXME: Number()? Though it can also be 50% IIRC
       const figure_type = fig.dataset.figure_type
-      const aspect = fig.dataset.aspect // FIXME: Number()
+      const aspect = fig.dataset.aspect // FIXME: Number()? Check -- this may also have stringy values
       const options = fig.dataset.options // FIXME: JSON.parse()
       const order = fig.dataset.order // FIXME: Number()
-      const count = fig.dataset.count // FIXME: NUmber()
+      const count = fig.dataset.count // FIXME: Number()?
 
-      // TODO: `figure_type` == html (or whatever it is) should skip some of this
+      // TODO: `figure_type` == html (or whatever it is) should parse slightly differently
 
       const thumbnail = fig.querySelector('img.thumbnail')?.src
 
@@ -117,6 +144,12 @@ const parseFiguresSection = (doc) => {
   return result
 }
 
+/**
+* parseTocSections
+* @param {JSDOM.Document} doc - Deserialized HTML document, usually from JSDOM.window.document
+*   
+* Returns an array of objects representing the Table of Contents hierarchy of an OSCI text (as a tree of objects)
+*/ 
 const parseTocSections = (doc) => {
 
   // TODO: Consider destructuring sections array and passing a tree of section ids
@@ -139,10 +172,6 @@ const parseTocSections = (doc) => {
     }
 
     const titlePattern = /(?:<!\[CDATA\[)(.+?)(?:<!--\]\])/g
-
-    // const paraFrag = /(^\[CDATA\[<p)/g
-    // const tailFrag = /(\]\]>$)/g
-    // Now we've got the TOC anchors, but things get a little wonky because they're all CDATA tags embeded in comments
 
     // TODO: Sanitize this embedded HTML
     // TODO: Create text-only representation of title (eg, html string -> dom node -> text content)
@@ -190,6 +219,81 @@ const parseTocSections = (doc) => {
   return sections
 }
 
+/**
+* parseBlocks
+* @param {object} section - A section object output from `parseTextSection`
+* @param {array} footnotes - footnotes from `parseFootnotes`
+* @param {array} figures - figure data objects from `parseFiguresSection`
+*   
+* Returns an array of block objects (order, html, TODO: type) suitable for use with a Twill object that conforms to `hasBlocks`
+* 
+* Mostly this consists of:
+* - Breaking up sections by paragraph tags
+* - Inserting figures after they are used
+*   - Or before the running text in the case of position=full|platefull
+* - Replacing footnote anchor references (OSCI) with [ref] shortcodes (AIC/Twill)
+*/ 
+const parseBlocks = (section, footnotes, figures) => {
+
+  const {id, html, order } = section
+
+  const parser = new JSDOM(html)
+  const sectionDoc = parser.window.document
+
+  const plateFigureBlocks = (order === 0) ? figures.filter( (f) => f.position === "plate" || f.position === "platefull" )
+                                    .map( (fig) => { return { ...fig, blockType: "figure" } } )
+                                  : []
+
+  // TODO: Pick a nice mod number (3?) and rotate the block size by it (circuitbreak by figure presence)
+
+  // Mutates the DOM object represented by fnRef to replace it with [ref] shortcodes
+  const replaceFootnoteAnchors = (fnRef) => {
+
+      const url = new URL(fnRef.href)
+      const fnoteId = url.hash.replace(/^#/,'')  
+
+      const note = footnotes.find( (n) => n.id===fnoteId )
+      if (note) {
+
+        // FIXME: Hrm this was browser-fu it may have no power here..
+        // Footnotes arrive <p>-wrapped, so grok their content and wrap with [ref] delimiters
+        const templ = new JSDOM().window.document.createElement('template')
+        templ.innerHTML = note.noteHtml
+
+        const parNode = templ.content.querySelector('p')
+
+        // NB: Notes have embedded markup so this must walk `childNodes` instead of `children` (`HTMLElement`s only)
+        const noteNodes = Array.from(parNode?.childNodes?.values() ?? [])
+
+        fnRef.replaceWith('[ref]',...noteNodes,'[/ref]')
+
+      }
+
+  }
+
+  // Iterate the array of children and reduce it to an array of 
+  const runningTextBlocks = Array.from(sectionDoc.body.children)
+                          .reduce( (blocks,child) => {
+
+    child.querySelectorAll('a[href^="#fn-"]').forEach( (fnRef) => replaceFootnoteAnchors(fnRef) )
+
+    const figureRefs = Array.from(child.querySelectorAll('a[href^="#fig-"]')).map( (fg) => {
+      const url = new URL(fg.href)
+      return url.hash.replace(/^#/,'')  
+    })
+
+    const blockFigs = figureRefs.filter( (fig) => figures.some( (f) => f.id===fig && f.position !== 'plate' && f.position !== 'platefull' ) ).map( fig => {
+      return { blockType: 'figure', ...figures.find( (f) => f.id===fig ) }
+    })
+
+    return [ ...blocks, { blockType: 'text', html: child.outerHTML }, ...blockFigs ]   
+
+  },[])
+
+  return [ ...plateFigureBlocks, ...runningTextBlocks ]
+
+}
+
 (() => {
 
   let buf;
@@ -213,6 +317,7 @@ const parseTocSections = (doc) => {
     }
 
     // TODO: Wrap everything in try/catch and leave a dirty exit code + emit on stderr on fail
+    // TODO: Relativize links in dom.window.document
 
     switch (type) {
     case 'toc':
@@ -225,11 +330,11 @@ const parseTocSections = (doc) => {
       const notes = parseFootnotes(dom.window.document)
       result.footnotes = notes
 
-      const textSections = parseTextSections(dom.window.document)
-      result.sections = textSections
-
       const figs = parseFiguresSection(dom.window.document)
       result.figures = figs
+
+      const textSections = parseTextSections(dom.window.document,notes,figs)
+      result.sections = textSections
 
       break
     }

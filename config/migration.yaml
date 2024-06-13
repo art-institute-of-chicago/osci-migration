@@ -55,16 +55,6 @@ input:
     - unarchive:
         format: json_array
 
-  # processors:
-  #   # Cache everything so we can cross-join by id in the processing stage
-  #   - resource: node_cache_set
-
-# buffer:
-#   memory:
-#     batch_policy:
-#       enabled: true
-#       count: 50000 # NB: Uncomment this buffer if inputs are not already batched and you need to force-batch them -- will impact performance and all messages must fit in memory!
-
 # Now we've got everything unpacked, split the batch into a useful size, fetch URLs and parse the results
 pipeline:
   processors:
@@ -175,16 +165,8 @@ pipeline:
             result_map: |
               root.assign(json())
 
-          # TODO: text_figures_align -- use jsdom to turn call sites at a.figure_reference and targets at figure, with extra data on @dataset-* into a useful panel view of what the figures do
-          # TODO: blocks_align -- use jsdom to turn non-figure (???) articles
-
-          # TODO: spine_materialize -- join across from package `spine` structures to their articles so we can do a nice row view of the spine
           # TODO: glossary_align -- use jsdom to turn dl/dt/dd tags into json term / description things useful as a detail/summary tags in review
-
           # TODO: html_clean -- use jsdom or maybe pandoc to trip weird markup (eg, <span></span> dropcaps, etc etc)
-          # TODO: contribution_render -- topology of processors, pulling out data from essays etc and turning it into blocks, figure, footnotes, and so on
-          # TODO: entry_render -- topology of processors doing similar but probably slightly different work from `contribution` 
-          # TODO: image_snapshot -- shell out to `convert` and grab a wee thing we can carry in the lighter DB (lol impelment matrix algebra and convolve a resize!)
 
     - processors:
         - noop: {}
