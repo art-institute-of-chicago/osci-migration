@@ -40,6 +40,8 @@ INSERT INTO figure_layers (layer_id, package, title, error, data)
 SELECT id,package,title,error,'{}' 
 FROM documents WHERE type='figure';
 
+DROP TABLE documents;
+
 VACUUM; 
 PRAGMA optimize;
 
