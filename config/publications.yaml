@@ -1,4 +1,25 @@
 publications:
+  - id: americansilver
+    package_url: https://publications.artic.edu/americansilver/api/epub/collection/package.opf
+    reader_url: https://publications.artic.edu/americansilver/reader/collection
+  - id: albright
+    package_url: https://publications.artic.edu/albright/api/epub/paintings/package.opf
+    reader_url: https://publications.artic.edu/albright/reader/paintings
+  - id: ensor
+    package_url: https://publications.artic.edu/ensor/api/epub/temptationstanthony/package.opf
+    reader_url: https://publications.artic.edu/ensor/reader/temptationstanthony
+  - id: digitalwhistler
+    package_url: https://publications.artic.edu/digitalwhistler/api/epub/lithographs/package.opf
+    reader_url: https://publications.artic.edu/digitalwhistler/reader/lithographs
+  - id: manet
+    package_url: https://publications.artic.edu/manet/api/epub/manetart/package.opf
+    reader_url: https://publications.artic.edu/manet/reader/manetart
+  - id: matisse
+    package_url: https://publications.artic.edu/matisse/api/epub/works/package.opf
+    reader_url: https://publications.artic.edu/matisse/reader/works
+  - id: modernseries
+    package_url: https://publications.artic.edu/modernseries/api/epub/shatterrupturebreak/package.opf
+    reader_url: https://publications.artic.edu/modernseries/reader/shatterrupturebreak
   - id: whistler_linkedvisions
     package_url: https://publications.artic.edu/whistler/api/epub/linkedvisions/package.opf
     reader_url: https://publications.artic.edu/whistler/reader/linkedvisions
