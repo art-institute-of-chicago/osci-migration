@@ -97,7 +97,7 @@ pipeline:
                           level: WARN
                           message: 'Could not process ${! metadata("url").string() }: ${! error() }'
                       - mapping: 'root = { "_id": metadata("url"), "_meta": {"fetch_failed": true } }'
-          - resource: url_cache_set
+                  - resource: url_cache_set
           - switch: 
               - check: |
                   metadata("format").has_prefix("image/")
@@ -143,33 +143,59 @@ pipeline:
                         root._body_html = if !this.exists("_parse_error") { metadata("body_text") } else { deleted() }
         result_map: |
           root.assign(this)
+    # Now that it's HTML parsed, parse by format 
+    - switch:
+        - check: this._format == "application/xhtml+xml"
+          processors:
+            - label: "parse_osci_html"
+              branch:
+                request_map: |
+                  root = this._body_html | deleted()
+                processors:
+                  - command:
+                      name: 'node'
+                      args_mapping: '[ "./alignments/parse-osci.js" ]'
+                  - switch:
+                      - check: 'metadata("command_stderr") != null'
+                        processors:
+                          - log:
+                              message: '${! metadata("command_stderr") }'
+                              level: WARN
+                result_map: |
+                  root.assign(json())
+        - check: this._format == "application/osci-tk-iip-figure"
+          processors:
+            - label: "parse_figure_layers"
+              branch:
+                request_map: |
+                  meta url = this._url
+                  root = this._body_html | deleted()
+                processors:
+                  - xml:
+                      operator: to_json
+                  - mapping: |
+                      let div_data = this.html.body.div | error()
+                      let li_data = $div_data.ul.li | error()
 
-    - workflow:
-        meta_path: _meta.workflow
-        branches:
-          parse_osci_html:
-            request_map: |
-              meta id = this._id
-              root = if this._body_html != null { this._body_html } else { deleted() }
-            processors:
-              # TODO: Move `command` to `subprocess` and rewrite the javascript to start/stop by newline?
-              - command:
-                  name: 'node'
-                  args_mapping: '[ "./alignments/parse-osci.js" ]'
-              - switch:
-                  - check: 'metadata("command_stderr") != null'
-                    processors:
-                      - log:
-                          message: '${! metadata("command_stderr") }'
-                          level: WARN
-            result_map: |
-              root.assign(json())
+                      let parsed_url = metadata("url").parse_url()
 
-          # TODO: glossary_align -- use jsdom to turn dl/dt/dd tags into json term / description things useful as a detail/summary tags in review
-          # TODO: html_clean -- use jsdom or maybe pandoc to trip weird markup (eg, <span></span> dropcaps, etc etc)
+                      root._type = "figure"
+                      root._asset_url = [ $parsed_url.scheme, "//", $parsed_url.host, "/", $parsed_url.path ].join("")
 
-    - processors:
-        - noop: {}
+                      root._aspect = $div_data."-data-aspect"
+                      root._height = $li_data."-data-height".number(0)
+                      root._width = $li_data."-data-width".number(0)
+
+                      root._layer_id = $li_data."-data-layer_id"
+                      root._image_ident = $li_data."-data-ptiff_path"
+                      root._image_url_stem = $li_data."-data-ptiff_sever"
+                      root._thumbnail = $li_data."-data-thumb"
+
+                      root._title = $li_data."-data-title"
+
+                result_map: |
+                  root.assign(json())
+
 output:
   switch:
     cases:
@@ -241,10 +267,11 @@ cache_resources:
         PRAGMA journal_mode=WAL;
         CREATE TABLE IF NOT EXISTS documents (id TEXT UNIQUE ON CONFLICT REPLACE, data JSON);
 
+# NB: ~75rps seems to be the sweet spot for publications.* -- only ~4-5 fully timed out HTTP requests (lower doesn't make it 0 🫠) 
 rate_limit_resources:
   - label: easy
     local:
-      count: 75 # NB: Above ~75 rps we get weird HTTP 400 errs from OSCI jpeg assets (75 still too high! -- cb@4/17/2024)
+      count: 75 
       interval: 1s
 
 tests: []

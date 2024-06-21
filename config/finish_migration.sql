@@ -37,7 +37,7 @@ CREATE INDEX pubs_url ON publications (json_extract(data,'$._url'));
 CREATE INDEX pubs_pkg ON publications (package);
 
 INSERT INTO figure_layers (layer_id, package, title, error, data)
-SELECT id,package,title,error,'{}' 
+SELECT id,package,title,error,data 
 FROM documents WHERE type='figure';
 
 DROP TABLE documents;

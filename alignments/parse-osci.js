@@ -5,6 +5,7 @@
   The input is: 
     - TODO: HTML Santitized (`dompurify`) -- sanitize errors are emitted on _meta._body_sanitize
     - Parsed into a DOM tree (`jsdom`)
+    - TODO: glossary_align -- use jsdom to turn dl/dt/dd tags into json term / description things useful as a detail/summary tags in review
 
 */
 
@@ -68,23 +69,27 @@ const parseFootnotes = (doc) => {
 const parseTextSections = (doc,footnotes,figures) => {
 
   const sects = doc.querySelectorAll('section')
+  
+  let figs = figures 
   let result = []
 
+  // Walk each section, capture the basic data, then attempt to parse
+  // TODO: strip section text/html 
   sects.forEach( (s,i) => {
 
-    // TODO: Just put these in the same place
     if (s.id === 'footnotes' || s.id === 'figures') { 
       return 
     }
 
     const id = s.id
     const text = s.textContent
-
-    // TODO: Consider parsing further to handle footnote, figure refs, and internal pub links (eg, /reader/* -> /reader/* )
-    // TODO: Consider stripping embedded @style attributes
     const html = s.innerHTML
 
-    const blocks = parseBlocks({id,html,order: i},footnotes,figures)
+    const blocks = parseBlocks({id,html,order: i},footnotes,figs)
+
+    // Remove figures from the list so we don't double-insert figs
+    const placedFigs = figures.filter( f => blocks.some( b => b.id===f.id) ).map( f => f.id )
+    figs = figs.filter( f => !placedFigs.includes(f.id) )
 
     result.push({id,text,html,blocks})
 
@@ -244,8 +249,6 @@ const parseBlocks = (section, footnotes, figures) => {
                                     .map( (fig) => { return { ...fig, blockType: "figure" } } )
                                   : []
 
-  // TODO: Pick a nice mod number (3?) and rotate the block size by it (circuitbreak by figure presence)
-
   // Mutates the DOM object represented by fnRef to replace it with [ref] shortcodes
   const replaceFootnoteAnchors = (fnRef) => {
 
@@ -271,13 +274,16 @@ const parseBlocks = (section, footnotes, figures) => {
 
   }
 
-  // Iterate the array of children and reduce it to an array of 
+  // TODO: Pick a nice mod number (3?) and rotate the block size by it (circuitbreak by figure presence, also check their CMS for how this looks)
+
+  // Iterate the array of children and reduce it to an array of block objects
   const runningTextBlocks = Array.from(sectionDoc.body.children)
-                          .reduce( (blocks,child) => {
+                          .reduce( (blocks,sectionPar) => {
+    
+    // TODO: Figures, ala "Signatures" on `caillebotte` can be in running text so detect them
+    sectionPar.querySelectorAll('a[href^="#fn-"]').forEach( (fnRef) => replaceFootnoteAnchors(fnRef) )
 
-    child.querySelectorAll('a[href^="#fn-"]').forEach( (fnRef) => replaceFootnoteAnchors(fnRef) )
-
-    const figureRefs = Array.from(child.querySelectorAll('a[href^="#fig-"]')).map( (fg) => {
+    const figureRefs = Array.from(sectionPar.querySelectorAll('a[href^="#fig-"]')).map( (fg) => {
       const url = new URL(fg.href)
       return url.hash.replace(/^#/,'')  
     })
@@ -286,7 +292,7 @@ const parseBlocks = (section, footnotes, figures) => {
       return { blockType: 'figure', ...figures.find( (f) => f.id===fig ) }
     })
 
-    return [ ...blocks, { blockType: 'text', html: child.outerHTML }, ...blockFigs ]   
+    return [ ...blocks, { blockType: 'text', html: sectionPar.innerHTML }, ...blockFigs ]   
 
   },[])
 
@@ -317,7 +323,7 @@ const parseBlocks = (section, footnotes, figures) => {
     }
 
     // TODO: Wrap everything in try/catch and leave a dirty exit code + emit on stderr on fail
-    // TODO: Relativize links in dom.window.document
+    // TODO: Relativize links in dom.window.document -- maybe stub by section id from the URL path?
 
     switch (type) {
     case 'toc':
@@ -337,6 +343,7 @@ const parseBlocks = (section, footnotes, figures) => {
       result.sections = textSections
 
       break
+
     }
 
     process.stdout.write(JSON.stringify(result))
