@@ -118,14 +118,41 @@ const parseFiguresSection = (doc) => {
       const id = fig.id
       const title = fig.title
       const position = fig.dataset.position
-      const columns = fig.dataset.columns // FIXME: Number()? Though it can also be 50% IIRC
+      const columns = fig.dataset.columns
       const figure_type = fig.dataset.figure_type
-      const aspect = fig.dataset.aspect // FIXME: Number()? Check -- this may also have stringy values
-      const options = fig.dataset.options // FIXME: JSON.parse()
-      const order = fig.dataset.order // FIXME: Number()
+      const aspect = Number.parseFloat(fig.dataset.aspect)
+
+      let options = {}
+
+      try {
+        options = JSON.parse(fig.dataset.options)
+      } catch {
+        options = {}
+      }
+
+      const order = fig.dataset.order // FIXME: Number()?
       const count = fig.dataset.count // FIXME: Number()?
 
-      // TODO: `figure_type` == html (or whatever it is) should parse slightly differently
+      let html_content 
+      const contentElem = fig.querySelector('.figure_content')
+
+      switch (figure_type) {
+        case 'html_figure':
+          if (contentElem) { 
+            html_content = contentElem.innerHTML
+          }
+          break
+        case '360_slider':
+          // TODO: Unpack contentElem's src files dir, start, end, width, height, prefix so someone can do something with it later
+          break
+        case 'iip_asset': 
+        case 'layered_image':
+          // NB: We already grab layer urls as figure_layer_url below
+          break
+        case 'rti_viewer':
+          // TODO: Unpack contentElem's height, width, rti-url, rti-name
+          break
+      }
 
       const thumbnail = fig.querySelector('img.thumbnail')?.src
 
@@ -141,7 +168,7 @@ const parseFiguresSection = (doc) => {
 
       // TODO: img alt text -- see https://publications.artic.edu/whistlerart/api/epub/paintingsanddrawings/51/content.xhtml?revision=1607615557#fig-51-27 ? I thought I saw this somewhere but I've only seen empty alts in samples
 
-      result.push({id,title,thumbnail, figure_layer_url, fallback_url, caption_html, caption_text, position,columns,figure_type,aspect,options,order,count})
+      result.push({id,title,thumbnail, figure_layer_url, fallback_url, caption_html, caption_text, position,columns,figure_type,aspect,options,order,count,html_content})
 
     })
   }

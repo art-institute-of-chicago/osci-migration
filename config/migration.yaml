@@ -145,6 +145,20 @@ pipeline:
           root.assign(this)
     # Now that it's HTML parsed, parse by format 
     - switch:
+        - check: this._format == "application/x-dtbncx+xml"
+          processors:
+            - label: "parse_ncx_xml"
+              branch:
+                request_map: |
+                  root = this._body_html | deleted()
+                processors:
+                  - xml:
+                      operator: to_json
+                  - mapping: |
+                      root._type = "ncx"
+                      root._raw_xml = this
+                result_map: |
+                  root.assign(json())
         - check: this._format == "application/xhtml+xml"
           processors:
             - label: "parse_osci_html"
@@ -180,7 +194,7 @@ pipeline:
                       let parsed_url = metadata("url").parse_url()
 
                       root._type = "figure"
-                      root._asset_url = [ $parsed_url.scheme, "//", $parsed_url.host, "/", $parsed_url.path ].join("")
+                      root._asset_url = [ $parsed_url.scheme, "://", $parsed_url.host, $parsed_url.path ].join("")
 
                       root._aspect = $div_data."-data-aspect"
                       root._height = $li_data."-data-height".number(0)
