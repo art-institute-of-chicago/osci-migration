@@ -55,16 +55,6 @@ input:
     - unarchive:
         format: json_array
 
-  # processors:
-  #   # Cache everything so we can cross-join by id in the processing stage
-  #   - resource: node_cache_set
-
-# buffer:
-#   memory:
-#     batch_policy:
-#       enabled: true
-#       count: 50000 # NB: Uncomment this buffer if inputs are not already batched and you need to force-batch them -- will impact performance and all messages must fit in memory!
-
 # Now we've got everything unpacked, split the batch into a useful size, fetch URLs and parse the results
 pipeline:
   processors:
@@ -79,6 +69,7 @@ pipeline:
       # - Attempts to parse as HTML, copies _body_text to _body_html if so, stores error on _meta._body_parse_error if not
       branch:
         request_map: |
+          meta ident = this._id
           meta format = this._format
           meta url = this._url 
           root = if this._url != null { this._url } else { deleted() }
@@ -106,7 +97,7 @@ pipeline:
                           level: WARN
                           message: 'Could not process ${! metadata("url").string() }: ${! error() }'
                       - mapping: 'root = { "_id": metadata("url"), "_meta": {"fetch_failed": true } }'
-          - resource: url_cache_set
+                  - resource: url_cache_set
           - switch: 
               - check: |
                   metadata("format").has_prefix("image/")
@@ -124,51 +115,87 @@ pipeline:
                             operator: to_json
                         # NB!! We're using xml->json only to catch the HTML parse error! 😿
                         - catch:
-                            - log:
-                                level: WARN
-                                message: 'Parsing HTML for ${! metadata("url") } in ${! metadata("pkg_name") } failed! Check _body_parse_error for this document'
-                            - mapping: |
-                                root._parse_error = error()
+                            - mapping: meta parse_error = error()
+                            # Attempt to recover from HTML parse errors by fetching (manually) cured HTML from data/errata.sqlite3
+                            - sql_select:
+                                driver: sqlite
+                                dsn: file:data/errata.sqlite3?mode=ro
+                                table: 'source_html'
+                                columns: [ 'body' ]
+                                where: id = ?
+                                args_mapping: '[ metadata("ident") ]'
+                                init_statement: 'PRAGMA journal_mode=WAL'
+                            - switch:
+                                # Success replace body text metadata with the cured body
+                                - check: this.length() > 0
+                                  processors:
+                                    - mapping: |
+                                        meta body_text = this.index(0).body 
+                                        root._parse_error = deleted()
+                                # Failure, set the body error metadata
+                                - processors:
+                                    - mapping: 'root._parse_error = metadata("parse_error")'
+                                    - log:
+                                        level: WARN
+                                        message: 'Parsing HTML for ${! metadata("url") } in ${! metadata("pkg_name") } failed! Check _body_parse_error for this document'
                       result_map: |
                         root._meta._body_parse_error = this._parse_error | deleted()
                         root._body_html = if !this.exists("_parse_error") { metadata("body_text") } else { deleted() }
         result_map: |
           root.assign(this)
+    # Now that it's HTML parsed, parse by format 
+    - switch:
+        - check: this._format == "application/xhtml+xml"
+          processors:
+            - label: "parse_osci_html"
+              branch:
+                request_map: |
+                  root = this._body_html | deleted()
+                processors:
+                  - command:
+                      name: 'node'
+                      args_mapping: '[ "./alignments/parse-osci.js" ]'
+                  - switch:
+                      - check: 'metadata("command_stderr") != null'
+                        processors:
+                          - log:
+                              message: '${! metadata("command_stderr") }'
+                              level: WARN
+                result_map: |
+                  root.assign(json())
+        - check: this._format == "application/osci-tk-iip-figure"
+          processors:
+            - label: "parse_figure_layers"
+              branch:
+                request_map: |
+                  meta url = this._url
+                  root = this._body_html | deleted()
+                processors:
+                  - xml:
+                      operator: to_json
+                  - mapping: |
+                      let div_data = this.html.body.div | error()
+                      let li_data = $div_data.ul.li | error()
 
-    - workflow:
-        meta_path: _meta.workflow
-        branches:
-          parse_osci_html:
-            request_map: |
-              meta id = this._id
-              root = if this._body_html != null { this._body_html } else { deleted() }
-            processors:
-              # TODO: Move `command` to `subprocess` and rewrite the javascript to start/stop by newline?
-              - command:
-                  name: 'node'
-                  args_mapping: '[ "./alignments/parse-osci.js" ]'
-              - switch:
-                  - check: 'metadata("command_stderr") != null'
-                    processors:
-                      - log:
-                          message: '${! metadata("command_stderr") }'
-                          level: WARN
-            result_map: |
-              root.assign(json())
+                      let parsed_url = metadata("url").parse_url()
 
-          # TODO: text_figures_align -- use jsdom to turn call sites at a.figure_reference and targets at figure, with extra data on @dataset-* into a useful panel view of what the figures do
-          # TODO: blocks_align -- use jsdom to turn non-figure (???) articles
+                      root._type = "figure"
+                      root._asset_url = [ $parsed_url.scheme, "//", $parsed_url.host, "/", $parsed_url.path ].join("")
 
-          # TODO: spine_materialize -- join across from package `spine` structures to their articles so we can do a nice row view of the spine
-          # TODO: glossary_align -- use jsdom to turn dl/dt/dd tags into json term / description things useful as a detail/summary tags in review
+                      root._aspect = $div_data."-data-aspect"
+                      root._height = $li_data."-data-height".number(0)
+                      root._width = $li_data."-data-width".number(0)
 
-          # TODO: html_clean -- use jsdom or maybe pandoc to trip weird markup (eg, <span></span> dropcaps, etc etc)
-          # TODO: contribution_render -- topology of processors, pulling out data from essays etc and turning it into blocks, figure, footnotes, and so on
-          # TODO: entry_render -- topology of processors doing similar but probably slightly different work from `contribution` 
-          # TODO: image_snapshot -- shell out to `convert` and grab a wee thing we can carry in the lighter DB (lol impelment matrix algebra and convolve a resize!)
+                      root._layer_id = $li_data."-data-layer_id"
+                      root._image_ident = $li_data."-data-ptiff_path"
+                      root._image_url_stem = $li_data."-data-ptiff_sever"
+                      root._thumbnail = $li_data."-data-thumb"
 
-    - processors:
-        - noop: {}
+                      root._title = $li_data."-data-title"
+
+                result_map: |
+                  root.assign(json())
+
 output:
   switch:
     cases:
@@ -223,12 +250,12 @@ cache_resources:
   # Here only for smoke testing!
   # - label: node_cache
   #   file:
-  #     directory: cacheyboo
-  - label: node_cache # Nodes we create / join during processing
+  #     directory: cache
+  - label: node_cache # For nodes we create / join during processing
     memory:
       default_ttl: 5m
       init_values: {}
-  - label: url_cache # URLs we request so we don't hammer endpoint
+  - label: url_cache # URLs we request so we don't hammer endpoints
     sql:
       driver: "sqlite"
       dsn: "file:data/osci_url_cache.sqlite3?mode=rwc"
@@ -238,12 +265,13 @@ cache_resources:
       conn_max_open: 2 # Reduce to 1 if there's contention (eg, "SQL_LOCKED" errs)
       init_statement: |
         PRAGMA journal_mode=WAL;
-        CREATE TABLE IF NOT EXISTS documents (id TEXT, data JSON);
+        CREATE TABLE IF NOT EXISTS documents (id TEXT UNIQUE ON CONFLICT REPLACE, data JSON);
 
+# NB: ~75rps seems to be the sweet spot for publications.* -- only ~4-5 fully timed out HTTP requests (lower doesn't make it 0 🫠) 
 rate_limit_resources:
   - label: easy
     local:
-      count: 75 # NB: Above ~75 rps we get weird HTTP 400 errs from OSCI jpeg assets (75 still too high! -- cb@4/17/2024)
+      count: 75 
       interval: 1s
 
 tests: []
