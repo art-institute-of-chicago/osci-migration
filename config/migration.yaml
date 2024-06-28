@@ -54,12 +54,6 @@ input:
         root = [ $package.apply("osci_package_align") ].concat( $manifest_items.map_each( m -> m.assign({"_id": "%s/%s".format(metadata("pkg_name"),m._id) } )  ) )
     - unarchive:
         format: json_array
-
-# Now we've got everything unpacked, split the batch into a useful size, fetch URLs and parse the results
-pipeline:
-  processors:
-    - split: 
-        size: 200
     - label: fetch_parts
       # TODO: Break up this complex branch with into `resources`
 
@@ -71,10 +65,12 @@ pipeline:
         request_map: |
           meta ident = this._id
           meta format = this._format
+
           meta url = this._url 
           root = if this._url != null { this._url } else { deleted() }
-        processors:  
-          # TODO: Handle type == image/* differently maybe
+        processors:
+          # TODO: Skip anything but text/xhtml type == image/* differently maybe
+          # TODO: Skip anything but xhtml since all must be sourced from the parsed figure data
           - resource: url_cache_get
           - catch:
             - mapping: meta do_fetch = true
@@ -143,6 +139,7 @@ pipeline:
                         root._body_html = if !this.exists("_parse_error") { metadata("body_text") } else { deleted() }
         result_map: |
           root.assign(this)
+          
     # Now that it's HTML parsed, parse by format 
     - switch:
         - check: this._format == "application/x-dtbncx+xml"
@@ -175,8 +172,11 @@ pipeline:
                           - log:
                               message: '${! metadata("command_stderr") }'
                               level: WARN
+                          - mapping: root = {}
+
                 result_map: |
                   root.assign(json())
+
         - check: this._format == "application/osci-tk-iip-figure"
           processors:
             - label: "parse_figure_layers"
@@ -185,30 +185,114 @@ pipeline:
                   meta url = this._url
                   root = this._body_html | deleted()
                 processors:
-                  - xml:
-                      operator: to_json
-                  - mapping: |
-                      let div_data = this.html.body.div | error()
-                      let li_data = $div_data.ul.li | error()
+                  - command:
+                      name: 'node'
+                      args_mapping: '[ "./alignments/parse-osci.js" ]'
+                  - switch:
+                      - check: 'metadata("command_stderr") != null'
+                        processors:
+                          - log:
+                              message: '${! metadata("command_stderr") }'
+                              level: WARN
+                          - mapping: root = {}
+                      - processors:
+                          - mapping: |
+                              root = this
+                              
+                              # .. the last two components of the directory of this url's path, joined by a '-' 
+                              let ident = metadata("url").parse_url().path.filepath_split().index(0).split("/").slice(-3,-1).join("-")
 
-                      let parsed_url = metadata("url").parse_url()
+                              root._id = "%s/figure-%s".format(metadata("pkg_name"),$ident)  
+                              root._format = "application/osci-tk-iip-figure"
+                              root._url = metadata("url")
 
-                      root._type = "figure"
-                      root._asset_url = [ $parsed_url.scheme, "://", $parsed_url.host, $parsed_url.path ].join("")
+                              let parsed_url = metadata("url").parse_url()
+                              root._asset_url = [ $parsed_url.scheme, "://", $parsed_url.host, $parsed_url.path ].join("")
 
-                      root._aspect = $div_data."-data-aspect"
-                      root._height = $li_data."-data-height".number(0)
-                      root._width = $li_data."-data-width".number(0)
+                  # - xml:
+                  #     operator: to_json
+                  # - mapping: |
+                  #     let div_data = this.html.body.div | error()
+                  #     let li_data = $div_data.ul.li | error()
 
-                      root._layer_id = $li_data."-data-layer_id"
-                      root._image_ident = $li_data."-data-ptiff_path"
-                      root._image_url_stem = $li_data."-data-ptiff_sever"
-                      root._thumbnail = $li_data."-data-thumb"
+                  #     let parsed_url = metadata("url").parse_url()
 
-                      root._title = $li_data."-data-title"
+                  #     root._type = "figure"
+                  #     root._asset_url = [ $parsed_url.scheme, "://", $parsed_url.host, $parsed_url.path ].join("")
+
+                  #     root._aspect = $div_data."-data-aspect"
+                  #     root._height = $li_data."-data-height".number(0)
+                  #     root._width = $li_data."-data-width".number(0)
+
+                  #     root._layer_id = $li_data."-data-layer_id"
+                  #     root._image_ident = $li_data."-data-ptiff_path"
+                  #     root._image_url_stem = $li_data."-data-ptiff_server"
+                  #     root._zoom_levels = $li_data."-data-zoom_levels"
+                  #     root._thumbnail = $li_data."-data-thumb"
+
+                  #     root._title = $li_data."-data-title"
 
                 result_map: |
                   root.assign(json())
+
+    # Not all referenced figures are in the spine, so fetch them from texts
+    # Now unarchive this text and its embedded layers so we have all layers used  
+    - mapping: |
+        root = this
+        root._fetched_layers = ( this.figures | [] ).filter( f -> f.figure_type == "layered_image" && f.exists("figure_layer_url") )
+    - mapping: |
+        root = [ this.without("_fetched_layers"), this._fetched_layers | [] ].flatten()
+    - unarchive:
+        format: json_array
+    - label: "fetch_figure_layers"
+      branch:
+        request_map: |
+          root = if this.exists("figure_layer_url") { 
+                    this
+                  } else { 
+                    deleted() 
+                  }
+        processors:
+          - mapping: |
+              meta url = this.figure_layer_url
+          - resource: url_cache_get
+          - catch:
+            - mapping: meta do_fetch = true
+          - resource: fetch_url_and_cache
+          - mapping: |
+              meta body_text = content().string()
+              root = content().string()
+          - command:
+              name: 'node'
+              args_mapping: '[ "./alignments/parse-osci.js" ]'
+          - switch:
+              - check: 'metadata("command_stderr") != null'
+                processors:
+                  - log:
+                      message: '${! metadata("command_stderr") }'
+                      level: WARN
+          - mapping: |
+              root = this
+              root._body_html = metadata("body_text") 
+
+              # .. the last two components of the directory of this url's path, joined by a '-' 
+              let ident = metadata("url").parse_url().path.filepath_split().index(0).split("/").slice(-3,-1).join("-")
+
+              root._id = "%s/figure-%s".format(metadata("pkg_name"),$ident)  
+              root._format = "application/osci-tk-iip-figure"
+              root._url = metadata("url")
+
+              let parsed_url = metadata("url").parse_url()
+              root._asset_url = [ $parsed_url.scheme, "://", $parsed_url.host, $parsed_url.path ].join("")
+
+        result_map: |
+          root.assign(json())
+
+# Now we've got everything unpacked, split the batch into a useful size, fetch URLs and parse the results
+pipeline:
+  processors:
+    - split: 
+        size: 200
 
 output:
   switch:
@@ -259,6 +343,27 @@ processor_resources:
       operator: set
       key: '${! metadata("url") }'
       value: "${! content() }"
+
+  - label: fetch_url_and_cache
+    switch:
+      - check: metadata("do_fetch") == true
+        processors:
+          - log:
+              level: DEBUG
+              message: 'Fetching ${! metadata("url") }'
+          - http:
+              url: '${! metadata("url")  }'
+              verb: GET
+              rate_limit: easy
+              headers:
+                User-Agent: 'Mozilla/5.0 (Darwin)'
+                Accept: "*/*" # TODO: Consider using media-type? Might be too strict in migration and.. is there conneg anyway?
+          - catch:
+              - log: 
+                  level: WARN
+                  message: 'Could not process ${! metadata("url").string() }: ${! error() }'
+              - mapping: 'root = { "_id": metadata("url"), "_meta": {"fetch_failed": true } }'
+          - resource: url_cache_set
 
 cache_resources:
   # Here only for smoke testing!

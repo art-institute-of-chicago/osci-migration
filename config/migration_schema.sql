@@ -3,7 +3,7 @@
 -- Basic setup for OSCI migrated content and target migration tables 
 
 --   * `documents` - mostly a JSON inbox for inbound migrated docs
-CREATE TABLE IF NOT EXISTS documents (  id TEXT, 
+CREATE TABLE IF NOT EXISTS documents (  id TEXT UNIQUE ON CONFLICT REPLACE, 
                                         package TEXT, 
                                         type TEXT, 
                                         format TEXT, 
