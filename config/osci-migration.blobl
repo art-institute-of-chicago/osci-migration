@@ -42,6 +42,10 @@ map osci_manifest_item_align {
     root._id = this."-id" | error()
     root._format = this."-media-type" | deleted()
     root._url = this."-href"
+
+    let parsed_url = this."-href".parse_url()
+    root._asset_url = [ $parsed_url.scheme, "://", $parsed_url.host, $parsed_url.path ].join("")
+
     root._meta._properties = this."-properties" | deleted()
 
 }

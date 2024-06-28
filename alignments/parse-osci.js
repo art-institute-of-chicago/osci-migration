@@ -11,6 +11,35 @@
 
 const { JSDOM } = require('jsdom');
 
+const parseFigureLayer = (dom) => {
+
+  const div = dom.querySelector('div > ul') // TODO: `div > ul.layered_image-layers`
+  const layerItems = div.querySelectorAll('li')
+
+  let result = { _type: "figure", _aspect: Number(div.dataset.aspect) }
+
+  let items = []
+  layerItems.forEach( (li) => {
+
+    items.push({
+      _title: li.dataset.title,
+      _height: Number(li.dataset.height),
+      _width: Number(li.dataset.width),
+      _layer_id: li.dataset.layer_id,
+      _static_url: li.dataset.image_path,
+      _image_ident: li.dataset.ptiff_path,
+      _image_url_stem: li.dataset.ptiff_server,
+      _zoom_levels: li.dataset.zoom_levels,
+      _thumbnail: li.dataset.thumb
+    }) 
+
+  })
+
+  result.layers = items
+  return result
+
+}
+
 /**
  * materializeType
  * @param {JSDOM} dom - JSDOM object, usually parsed from a string
@@ -113,19 +142,58 @@ const parseFiguresSection = (doc) => {
   if (sect) {
 
     const figs = sect.querySelectorAll('figure')
+
     figs.forEach( (fig) => {
 
       const id = fig.id
       const title = fig.title
       const position = fig.dataset.position
-      const columns = fig.dataset.columns // FIXME: Number()? Though it can also be 50% IIRC
+      const columns = fig.dataset.columns
       const figure_type = fig.dataset.figure_type
-      const aspect = fig.dataset.aspect // FIXME: Number()? Check -- this may also have stringy values
-      const options = fig.dataset.options // FIXME: JSON.parse()
-      const order = fig.dataset.order // FIXME: Number()
+      const aspect = Number.parseFloat(fig.dataset.aspect)
+
+      let options = {}
+
+      try {
+        options = JSON.parse(fig.dataset.options)
+      } catch {
+        options = {}
+      }
+
+      const order = fig.dataset.order // FIXME: Number()?
       const count = fig.dataset.count // FIXME: Number()?
 
-      // TODO: `figure_type` == html (or whatever it is) should parse slightly differently
+      let html_content
+      let html_content_src 
+
+      const contentElem = fig.querySelector('.figure_content')
+
+      switch (figure_type) {
+        case 'html_figure':
+
+          // Parse for embedded figure HTML and for their src (if one exists--eg, youtube) 
+          if (contentElem) { 
+
+            const embed = contentElem.querySelector('embed') ?? contentElem.querySelector('iframe')
+
+            html_content = contentElem.innerHTML
+
+            if (embed && embed.getAttribute('src')) {
+              html_content_src = embed.getAttribute('src')
+            }
+          }
+          break
+        case '360_slider':
+          // TODO: Unpack contentElem's src files dir, start, end, width, height, prefix so someone can do something with it later
+          break
+        case 'iip_asset': 
+        case 'layered_image':
+          // NB: We already grab layer urls as figure_layer_url below
+          break
+        case 'rti_viewer':
+          // TODO: Unpack contentElem's height, width, rti-url, rti-name
+          break
+      }
 
       const thumbnail = fig.querySelector('img.thumbnail')?.src
 
@@ -141,7 +209,7 @@ const parseFiguresSection = (doc) => {
 
       // TODO: img alt text -- see https://publications.artic.edu/whistlerart/api/epub/paintingsanddrawings/51/content.xhtml?revision=1607615557#fig-51-27 ? I thought I saw this somewhere but I've only seen empty alts in samples
 
-      result.push({id,title,thumbnail, figure_layer_url, fallback_url, caption_html, caption_text, position,columns,figure_type,aspect,options,order,count})
+      result.push({id,title,thumbnail, figure_layer_url, fallback_url, caption_html, caption_text, position,columns,figure_type,aspect,options,order,count,html_content,html_content_src})
 
     })
   }
@@ -316,7 +384,7 @@ const parseBlocks = (section, footnotes, figures) => {
 
     const dom = new JSDOM(buf)
     const type = materializeType(dom)
-    const result = { "_type": type }
+    let result = { "_type": type }
 
     if (dom.window.document.title) {
       result._title = dom.window.document.title.trim()
@@ -331,6 +399,7 @@ const parseBlocks = (section, footnotes, figures) => {
       result.sections = tocSections
       break
     case 'figure':
+      result = { ...result, ...parseFigureLayer(dom.window.document) }
       break
     case 'text':
       const notes = parseFootnotes(dom.window.document)
