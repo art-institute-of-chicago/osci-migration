@@ -135,7 +135,7 @@ function SelectedTextView(props: any) {
                 <figcaption><span>{id}</span></figcaption>
               </figure>
               <div className='media-right'>
-                <div className='content'>
+                <div className='content' style={{width: '40%'}}>
                   <strong >Caption</strong>
                   <br/>
                   <span dangerouslySetInnerHTML={{__html: caption_html }}></span>
@@ -145,7 +145,7 @@ function SelectedTextView(props: any) {
                   <p><strong>position</strong>:&nbsp;{position}</p>
                   <p><strong>aspect</strong>:&nbsp;{`${ aspect }`}</p>
                   <p><strong>columns</strong>:&nbsp;{columns}</p>
-                  <p style={{overflowWrap: 'break-word'}}><strong>options</strong>:&nbsp;{JSON.stringify(options)}</p>
+                  <p><strong>options</strong>:&nbsp;<span style={{wordBreak: 'break-word'}}>{JSON.stringify(options,null," ")}</span></p>
                   {/* TODO: view figure link */}
                   {/* TODO: return to ref link */}
                 </div>
