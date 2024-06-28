@@ -14,7 +14,7 @@ CREATE INDEX doc_pkg ON documents (package);
 
 INSERT INTO texts (text_id, package, title, blocks, figures, footnotes, error, data)
 SELECT id,package,title,data->>'$.blocks',data->>'$.figures',data->>'$.footnotes',error,data 
-FROM documents WHERE type='text' OR type is null;
+FROM documents WHERE type='text';
 
 CREATE INDEX txt_id ON texts (text_id);
 CREATE INDEX txt_url ON texts (json_extract(data,'$._url')); 
