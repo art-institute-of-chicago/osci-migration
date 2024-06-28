@@ -121,11 +121,12 @@ function SelectedTocView(props: any) {
 
 function SelectedTextView(props: any) {
 
-  const { id, url, title, error, sections: sects, figures: figs } = props.data
+  const { id, url, title, error, sections: sects, figures: figs, footnotes: fnotes } = props.data
 
   const figureView = (fig: any) => {
-    console.log(fig)
+
     const { id, thumbnail, fallback_url, figure_type, order, position, title: _, aspect, options, columns, caption_html } = fig
+
     return <article className='media' id={id}>
               <div className='media-left'>
               </div>
@@ -142,9 +143,9 @@ function SelectedTextView(props: any) {
                   <p><strong>figure_type</strong>:&nbsp;{figure_type}</p>
                   <p><strong>order</strong>:&nbsp;{order}</p>
                   <p><strong>position</strong>:&nbsp;{position}</p>
-                  <p><strong>aspect</strong>:&nbsp;{aspect}</p>
+                  <p><strong>aspect</strong>:&nbsp;{`${ aspect }`}</p>
                   <p><strong>columns</strong>:&nbsp;{columns}</p>
-                  <p><strong>options</strong>:&nbsp;{options}</p>
+                  <p style={{overflowWrap: 'break-word'}}><strong>options</strong>:&nbsp;{JSON.stringify(options)}</p>
                   {/* TODO: view figure link */}
                   {/* TODO: return to ref link */}
                 </div>
@@ -155,36 +156,36 @@ function SelectedTextView(props: any) {
 
   const sections = ( sects ?? [] ).map( (sect: any) => {
 
-    const { id, blocks } = sect
+    const { id, html } = sect
     // TODO: Maybe ditch "Section: blah" and just presence the anchors
     return <section className={`section ${id}-section`}>
-          <h4 className='title'>Section:&nbsp;{id}</h4>
-            { 
-              ( blocks ?? [] ).map( (b: any) => {
-                switch (b.blockType) {
-                  case 'text':
-                    return <article className='media'>
-                      <div className='media-content'>
-                        <div className='content' dangerouslySetInnerHTML={{__html: b.html}} >
-                        </div>
-                        { /* b.notes.length > 0 ? footnotesView(b.notes) : '' */ }
-                      </div>
-                    </article>
-                  case 'figure':
-                    // console.log(b)
-                    return figureView(b)
-                  default:
-                    return ''
-                }
-              }) 
-            }            
-    </section>
+            <h4 className='title'>Section:&nbsp;{id}</h4>
+            <article className='media'>
+              <div className='media-content'>
+                <div className='content' dangerouslySetInnerHTML={{__html: html}} >
+                </div>
+              </div>
+            </article>        
+          </section>
   })
 
   const figures = ( figs ?? [] ).map( (fig: any) => figureView(fig))
+  // console.log(figures)
+  const footnotes = ( fnotes ?? [] ).map( (fn: any) => {
+
+    return <article className='media' id={fn.id}>
+              <div className='media-left'>
+                <span className='is-text-weight-semibold'>{fn.index}</span>
+              </div>
+              <div className='media-content'>
+                <div className='content' dangerouslySetInnerHTML={{ __html: fn.noteHtml}}>
+                </div>
+                {/* TODO: Return to ref link */}
+              </div>
+            </article>
+  })
 
   // TODO: Lay out any figures that haven't been ref'd at the end of sections?
-  // console.log(props.data)
   return <div className={`selected-text-view container ${ props.isHidden ? 'is-hidden' : '' }`}>
             <h2 className='title'>{title}</h2>
             <h3 className='subtitle'>{id}</h3>
@@ -201,10 +202,16 @@ function SelectedTextView(props: any) {
 
             {sections}
 
+            <section className={`section footnotes-section ${footnotes.length > 0 ? '' : 'is-hidden' }`}>
+              <h4 className='title'>Section:&nbsp;footnotes</h4>
+                {footnotes}
+            </section>
+
             <section className={`section figures-section ${figures.length > 0 ? '' : 'is-hidden'}`}>
               <h4 className='title'>Section:&nbsp;figures</h4>
                 {figures}
             </section>          
+
           </div>
 }
 
@@ -225,10 +232,10 @@ function SelectedEntityView(props: any) {
   useEffect(() => {
     if (!ready) { return }
 
-    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `SELECT text_id as id, title, 'text' as type, package, error, data->>'$._url' AS url, data->>'$.sections' as sections 
+    props.sqlWorker.postMessage({type: 'exec', dbId: props.dbId, args: {callback: 'selected-entity', rowMode: 'object', sql: `SELECT text_id as id, title, 'text' as type, package, error, data->>'$._url' AS url, data->>'$.sections' as sections, coalesce(data->>'$.figures','[]') as figures, data->>'$.footnotes' as footnotes
                                                                                                                               FROM texts where data->>'$._url'=?
                                                                                                                               UNION
-                                                                                                                              SELECT toc_id as id, title, 'toc' as type, package, error, data->>'$._url' AS url, data->>'$.sections' as sections 
+                                                                                                                              SELECT toc_id as id, title, 'toc' as type, package, error, data->>'$._url' AS url, data->>'$.sections' as sections, '[]' as figures, '[]' as footnotes 
                                                                                                                               FROM tocs where data->>'$._url'=?`, bind: [ props.selectedText ?? props.selectedToc, props.selectedText ?? props.selectedToc ] }})     
   },[ready,props.selectedText,props.selectedToc])
 
@@ -239,12 +246,14 @@ function SelectedEntityView(props: any) {
         if ( isResultTerminator(msg) ) { 
           return
         }
+        const { id, title, error, type, package: packageId, figures: figs, footnotes: fnotes, sections: sect, url } = msg.row
 
-        const { id, title, error, type, package: packageId, sections: sect, url } = msg.row
-
+        const figures = JSON.parse(figs ?? '[]') 
+        const footnotes = JSON.parse(fnotes ?? '[]') 
         const sections = JSON.parse(sect ?? '[]')
+
         setEntityType(type)
-        setData({id, title, error, package: packageId, sections, url })
+        setData({id, title, error, package: packageId, figures, sections, footnotes, url })
         break
       default:
         return
@@ -866,7 +875,6 @@ function App(props: any) {
     console.log(`db open with id ${dbId}`)
 
     // TODO: If props.urlState !== {} load the items so they can be the navStack
-    // console.log(props.urlNavState)
     if (props.urlNavState.length > 0) {
 
       const tabs = props.urlNavState.filter( (s: any) => s.type === 'tab' )
