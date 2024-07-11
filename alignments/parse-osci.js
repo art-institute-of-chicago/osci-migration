@@ -76,9 +76,7 @@ const parseFootnotes = (doc) => {
       const id = note.id
       const index = note.dataset.footnote_index
       const noteHtml = note.innerHTML
-
-      const par = note.querySelector('p')
-      const noteText = par.textContent
+      const noteText = note.textContent
 
       const parsed = { id, index, noteHtml, noteText }
       footnotes.push(parsed)
@@ -293,12 +291,72 @@ const parseTocSections = (doc) => {
 }
 
 /**
+ * replaceFootnoteAnchors
+ * @param {Node} fnRefAnchor - an OSCI footnote anchor to replace
+ * @param {array} footnotes - footnotes for this section
+ * 
+ * Replaces the anchor footnote reference with [ref]-wrapped shortcodes
+ * NB: Will mutate `fnRefAnchor` even in a static NodeList due to `replaceWith()`
+ * 
+ **/
+const replaceFootnoteAnchors = (fnRefAnchor,footnotes) => {
+
+    const fnRefHref = new URL(fnRefAnchor.href)
+    const fnoteId = fnRefHref.hash.replace(/^#/,'')  
+
+    const note = footnotes.find( (n) => n.id===fnoteId )
+
+    if (note) {
+
+      // Footnotes arrive <p>-wrapped, so grok their content and wrap with [ref] delimiters
+      const br = JSDOM.fragment('br')
+      const noteFrag = JSDOM.fragment(note.noteHtml)
+
+      const parNodes = noteFrag.querySelectorAll('p')
+
+      let noteNodes = []
+
+      // Walk the footnote's par nodes and then walk their childNodes (NB: must be childNodes to get Text nodes as well, must be iterated to be copied)
+      parNodes.forEach( p => {
+
+        // Create a line break between footnote paras
+        if (noteNodes.length > 0) {
+          noteNodes.push( br.cloneNode() )
+        }
+
+        for (let n of p.childNodes.values()) {
+
+          // Trim whitespace -- since all OSCI content comes in as HTML it can have wildly differing spacing
+          switch (n.nodeType) {
+            case n.TEXT_NODE:
+
+              // NB: not ideal (all whitespace becomes one space) but better for now than full removal
+              const frag = JSDOM.fragment(n.nodeValue.replace(/^\s+|\s+$/g," "))
+              noteNodes.push(frag)
+              break
+            default:
+              noteNodes.push(n)
+              break
+          }
+
+
+        }
+
+      })
+
+      fnRefAnchor.replaceWith(' [ref]',...noteNodes,'[/ref] ')
+
+    }
+
+}
+
+/**
 * parseBlocks
 * @param {object} section - A section object output from `parseTextSection`
 * @param {array} footnotes - footnotes from `parseFootnotes`
 * @param {array} figures - figure data objects from `parseFiguresSection`
 *   
-* Returns an array of block objects (order, html, TODO: type) suitable for use with a Twill object that conforms to `hasBlocks`
+* Returns an array of block objects (order, html, type) suitable for use with a Twill object that conforms to `hasBlocks`
 * 
 * Mostly this consists of:
 * - Breaking up sections by paragraph tags
@@ -310,61 +368,83 @@ const parseBlocks = (section, footnotes, figures) => {
 
   const {id, html, order } = section
 
-  const parser = new JSDOM(html)
-  const sectionDoc = parser.window.document
+  const sectionFrag = JSDOM.fragment(html)
 
-  const plateFigureBlocks = (order === 0) ? figures.filter( (f) => f.position === "plate" || f.position === "platefull" )
-                                    .map( (fig) => { return { ...fig, blockType: "figure" } } )
-                                  : []
+  // Collate OSCI paras into larger blocks, breaking by heading tags
+  const collateBlocks = (blocks,sectionPara) => {
 
-  // Mutates the DOM object represented by fnRef to replace it with [ref] shortcodes
-  const replaceFootnoteAnchors = (fnRef) => {
+      // Replace OSCI-style fn-refs with AIC-style [ref] shortcodes
+      sectionPara.querySelectorAll('a[href^="#fn-"]').forEach( (fnRef) => {
+        replaceFootnoteAnchors(fnRef,footnotes)
+      })
 
-      const url = new URL(fnRef.href)
-      const fnoteId = url.hash.replace(/^#/,'')  
+      // Strip embedded styling
+      let clean = sectionPara.cloneNode(true)
+      clean.removeAttribute('style')
 
-      const note = footnotes.find( (n) => n.id===fnoteId )
-      if (note) {
+      // OSCI text has umeanginful whitespace, remove it 
+      for (let ch of clean.childNodes) {
+        switch (ch.nodeType) {
+        case ch.TEXT_NODE:
+          // console.log('sup')
+          ch.replaceWith( JSDOM.fragment(ch.nodeValue.trim() ) )
+          break
+        default:
+          break
+        }
+      }
 
-        // FIXME: Hrm this was browser-fu it may have no power here..
-        // Footnotes arrive <p>-wrapped, so grok their content and wrap with [ref] delimiters
-        const templ = new JSDOM().window.document.createElement('template')
-        templ.innerHTML = note.noteHtml
 
-        const parNode = templ.content.querySelector('p')
+      // Break the block if there's a heading (or if no blocks exist)
+      if ( blocks.length < 1 ||
+           ['h1','h2','h3','h4','h5','h6'].includes(sectionPara.tagName) 
+           ) {
 
-        // NB: Notes have embedded markup so this must walk `childNodes` instead of `children` (`HTMLElement`s only)
-        const noteNodes = Array.from(parNode?.childNodes?.values() ?? [])
+        return [ ...blocks, { blockType: 'text', html: clean.outerHTML } ]
 
-        fnRef.replaceWith('[ref]',...noteNodes,'[/ref]')
+      } else {
+        // Append this block's text to the last block
+        const prevBlock = blocks[ blocks.length - 1 ]
+        return [ ...blocks.slice(0,-1), {...prevBlock, html: prevBlock.html.concat( clean.outerHTML ) }]
 
       }
 
   }
 
-  // TODO: Pick a nice mod number (3?) and rotate the block size by it (circuitbreak by figure presence, also check their CMS for how this looks)
+  // Inserts figure blocks for each referenced figure in `textBlock`, a text block
+  const insertFigures = (blocks,textBlock) => {
 
-  // Iterate the array of children and reduce it to an array of block objects
-  const runningTextBlocks = Array.from(sectionDoc.body.children)
-                          .reduce( (blocks,sectionPar) => {
-    
-    // TODO: Figures, ala "Signatures" on `caillebotte` can be in running text so detect them
-    sectionPar.querySelectorAll('a[href^="#fn-"]').forEach( (fnRef) => replaceFootnoteAnchors(fnRef) )
+    const block = new JSDOM(textBlock.html).window.document
 
-    const figureRefs = Array.from(sectionPar.querySelectorAll('a[href^="#fig-"]')).map( (fg) => {
+    // Find all figure references
+    const figureRefs = Array.from(block.querySelectorAll('a[href^="#fig-"]')).map( (fg) => {
       const url = new URL(fg.href)
       return url.hash.replace(/^#/,'')  
     })
 
-    const blockFigs = figureRefs.filter( (fig) => figures.some( (f) => f.id===fig && f.position !== 'plate' && f.position !== 'platefull' ) ).map( fig => {
+    // And create blocks for not-yet-inserted figs using their data
+    const blockFigs = figureRefs.filter( (fig) => !blocks.some( b => b.blockType === 'figure' && b.id === fig.id ) && figures.some( (f) => f.id===fig && f.position !== 'plate' && f.position !== 'platefull' ) ).map( fig => {
       return { blockType: 'figure', ...figures.find( (f) => f.id===fig ) }
     })
 
-    return [ ...blocks, { blockType: 'text', html: sectionPar.innerHTML }, ...blockFigs ]   
+    return [ ...blocks, textBlock, ...blockFigs ]
+  }
 
-  },[])
+  // Break up into blocks and then insert figures (first referenced, then unreferenced)
 
-  return [ ...plateFigureBlocks, ...runningTextBlocks ]
+  const plateFigureBlocks = (order === 0) ? figures.filter( (f) => f.position === "plate" || f.position === "platefull" )
+                                    .map( (fig) => { return { ...fig, blockType: "figure" } } )
+                                  : []
+
+  const textBlocks = Array.from(sectionFrag.children)
+                          .reduce( collateBlocks, [] )
+  const textAndRefdFigureBlocks = textBlocks.reduce( insertFigures, [] )
+  const unreferencedFigures = figures.filter( f => !textAndRefdFigureBlocks.some( b => b.blockType === 'figure' && b.id === f.id && ( f.position !== 'plate' && f.position !== 'platefull' ) ) ).map( f => { return { ...f, blockType: 'figure' } })
+
+  // TODO:
+  // insert unreferencedFigures if they exist
+
+  return [ ...plateFigureBlocks, ...textAndRefdFigureBlocks ] // TODO: , ...unreferencedFigures ]
 
 }
 

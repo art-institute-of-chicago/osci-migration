@@ -1,5 +1,3 @@
--- TODO: Apply some FK constraints.
-
 -- This is just to get us closer to a web-safe DB size (~50MB at time of writing) since the whole thing gets loaded
 UPDATE documents 
 SET data = json_set(json_set(data,'$._body_html',''),'$._body_text','') 
@@ -10,10 +8,9 @@ CREATE INDEX doc_typ ON documents (type);
 CREATE INDEX doc_url ON documents (json_extract(data,'$._url')); 
 CREATE INDEX doc_pkg ON documents (package);
 
--- TODO: use these tables in the review app
-
-INSERT INTO texts (text_id, package, title, blocks, figures, footnotes, error, data)
-SELECT id,package,title,data->>'$.blocks',data->>'$.figures',data->>'$.footnotes',error,data 
+-- Align everything 
+INSERT INTO texts (text_id, package, title, sections, figures, footnotes, error, data)
+SELECT id,package,title,data->>'$.sections',data->>'$.figures',data->>'$.footnotes',error,data 
 FROM documents WHERE type='text';
 
 CREATE INDEX txt_id ON texts (text_id);
