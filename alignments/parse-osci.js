@@ -22,15 +22,18 @@ const parseFigureLayer = (dom) => {
   layerItems.forEach( (li) => {
 
     items.push({
+      _type: li.dataset.type,
       _title: li.dataset.title,
       _height: Number(li.dataset.height),
       _width: Number(li.dataset.width),
       _layer_id: li.dataset.layer_id,
+      _layer_num: li.dataset.layer_num,
       _static_url: li.dataset.image_path,
       _image_ident: li.dataset.ptiff_path,
       _image_url_stem: li.dataset.ptiff_server,
       _zoom_levels: li.dataset.zoom_levels,
-      _thumbnail: li.dataset.thumb
+      _thumbnail: li.dataset.thumb,
+      _svg_path: li.dataset.svg_path
     }) 
 
   })
@@ -309,7 +312,7 @@ const replaceFootnoteAnchors = (fnRefAnchor,footnotes) => {
     if (note) {
 
       // Footnotes arrive <p>-wrapped, so grok their content and wrap with [ref] delimiters
-      const br = JSDOM.fragment('br')
+      const br = JSDOM.fragment('<br>')
       const noteFrag = JSDOM.fragment(note.noteHtml)
 
       const parNodes = noteFrag.querySelectorAll('p')
@@ -344,7 +347,7 @@ const replaceFootnoteAnchors = (fnRefAnchor,footnotes) => {
 
       })
 
-      fnRefAnchor.replaceWith(' [ref]',...noteNodes,'[/ref] ')
+      fnRefAnchor.replaceWith('[ref]',...noteNodes,'[/ref]')
 
     }
 
@@ -370,10 +373,16 @@ const parseBlocks = (section, footnotes, figures) => {
 
   const sectionFrag = JSDOM.fragment(html)
 
-  // Collate OSCI paras into larger blocks, breaking by heading tags
+  // Reducer that runs across all children of `section` tags in this document:
+  // - Replaces OSCI-style `.fn-ref` footnotes with AIC-style [ref][/ref] shortcodes
+  // - Strips embedded styling
+  // - Drops OSCI `a.anchor-link` hidden anchor tags
+  // - Strips HTML whitespace to prep for pseudo-HTML whitespace (TODO--too much stripped) 
+  // - Collates OSCI paras into larger blocks, breaking heading tags
+
   const collateBlocks = (blocks,sectionPara) => {
 
-      // Replace OSCI-style fn-refs with AIC-style [ref] shortcodes
+      // Replace footnotes w/ shortcodes
       sectionPara.querySelectorAll('a[href^="#fn-"]').forEach( (fnRef) => {
         replaceFootnoteAnchors(fnRef,footnotes)
       })
@@ -382,30 +391,43 @@ const parseBlocks = (section, footnotes, figures) => {
       let clean = sectionPara.cloneNode(true)
       clean.removeAttribute('style')
 
-      // OSCI text has umeanginful whitespace, remove it 
-      for (let ch of clean.childNodes) {
-        switch (ch.nodeType) {
-        case ch.TEXT_NODE:
-          // console.log('sup')
-          ch.replaceWith( JSDOM.fragment(ch.nodeValue.trim() ) )
-          break
-        default:
-          break
-        }
+      headingTags = ['h1','h2','h3','h4','h5','h6']
+      const tagName = sectionPara.tagName.toLowerCase()
+      const prevTagName = blocks.length > 0 ? blocks[blocks.length - 1].tagName.toLowerCase() : undefined
+
+      // Clamp heading level to h4
+      if (tagName==='h5' || tagName==='h6') {
+        let frag = JSDOM.fragment(`<h4>${clean.innerHTML}</h4>`)
+        clean = frag.firstChild
       }
 
+      switch (true) {
+        case (sectionPara.tagName.toLowerCase() === 'a' && sectionPara.classList.contains('anchor-link') ):
+          return blocks
 
-      // Break the block if there's a heading (or if no blocks exist)
-      if ( blocks.length < 1 ||
-           ['h1','h2','h3','h4','h5','h6'].includes(sectionPara.tagName) 
-           ) {
+        case (blocks.length===0):
+          // Add the block if there are none
+          return [{ blockType: 'text', html: clean.outerHTML, tagName }]
+        
+        case (headingTags.includes(tagName) && !headingTags.includes(prevTagName) ):
+          // Begin a new block if this is a header and we didn't see a header last
+          return [ ...blocks, { blockType: 'text', html: clean.outerHTML, tagName } ]
+        
+        case (headingTags.includes(tagName) && headingTags.includes(prevTagName) ):
+          // Add to the block without p-wrapping if it's another header
+          return [ ...blocks.slice(0,-1), { blockType: 'text', html: blocks[ blocks.length - 1 ].html.concat( clean.outerHTML ), tagName } ]
+        
+        case (tagName === 'p') && blocks.length > 0:
+          const prev = blocks[ blocks.length - 1 ]
+          return [ ...blocks.slice(0,-1), {...prev, html: prev.html.concat( clean.outerHTML ), tagName }]
+        
+        case (clean.outerHTML === undefined):
+          return blocks
 
-        return [ ...blocks, { blockType: 'text', html: clean.outerHTML } ]
-
-      } else {
-        // Append this block's text to the last block
-        const prevBlock = blocks[ blocks.length - 1 ]
-        return [ ...blocks.slice(0,-1), {...prevBlock, html: prevBlock.html.concat( clean.outerHTML ) }]
+        default:
+          // Everything else needs to be wrapped in a p-tag
+          const prevBlock = blocks[ blocks.length - 1 ]
+          return [ ...blocks.slice(0,-1), {...prevBlock, html: prevBlock.html.concat( `<p>${clean.outerHTML}</p>` ), tagName }]
 
       }
 
@@ -462,7 +484,9 @@ const parseBlocks = (section, footnotes, figures) => {
 
   }).on("end", () => {
 
-    const dom = new JSDOM(buf)
+    // FIXME: Regex out JSDOM-unprocessable self-closing anchor tags!!
+    const anchorless = buf.replaceAll(/<a .+?anchor-link.+?\/>/g,'').replaceAll(/\n/g,'')
+    const dom = new JSDOM(anchorless)
     const type = materializeType(dom)
     let result = { "_type": type }
 
